@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# chatgpt.sh - All-in-one manifest generator
-# Generates manifests/base/* including Vault, Postgres, Redis, Kafka, app, Grafana (with separate secret),
-# monitoring stack, Kyverno, ArgoCD app, and GitHub Actions workflow.
-#
-# Usage:
-#   ./chatgpt.sh generate
+# Final chatgpt.sh - All-in-one manifest generator (production-ready defaults)
+# Generates manifests/base/* for ArgoCD (Kustomize), Vault, Postgres, Redis, Kafka, Grafana (separate secret), Prometheus, Loki, Tempo, Kyverno.
+# Usage: ./chatgpt.sh generate
 
 APP_NAME="website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat"
 ORG="exea-centrum"
@@ -19,7 +16,7 @@ MANIFESTS_DIR="${ROOT_DIR}/manifests"
 BASE_DIR="${MANIFESTS_DIR}/base"
 WORKFLOW_DIR="${ROOT_DIR}/.github/workflows"
 
-info(){ echo -e "\033[1;34m[chatgpt.sh]\033[0m $*"; }
+info(){ echo -e "[chatgpt.sh] $*"; }
 mkdir_p(){ mkdir -p "$@"; }
 
 generate_structure(){
@@ -41,7 +38,6 @@ on:
 permissions:
   contents: read
   packages: write
-  id-token: write
 
 jobs:
   build-and-push:
@@ -49,31 +45,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
-
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v2
-
       - name: Log in to GHCR
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
-
       - name: Build and push image
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
           tags: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:${{ github.sha }}
-
-      - name: Tag latest
-        run: |
-          docker tag ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:${{ github.sha }} ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:latest || true
-          docker push ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:latest || true
 GHA
 }
 
@@ -236,7 +223,7 @@ VAI
 }
 
 generate_secret_fallback(){
-  info "writing fallback secrets"
+  info "writing fallback secret db-secret"
   cat > "${BASE_DIR}/secret-fallback.yaml" <<SF
 apiVersion: v1
 kind: Secret
@@ -251,7 +238,7 @@ SF
 }
 
 generate_grafana_secret(){
-  info "writing grafana-secret.yaml (single source of truth)"
+  info "writing grafana-secret.yaml"
   cat > "${BASE_DIR}/grafana-secret.yaml" <<GS
 apiVersion: v1
 kind: Secret
@@ -948,7 +935,7 @@ KY
 }
 
 generate_argocd_app(){
-  info "writing argocd-app.yaml"
+  info "writing argocd-app.yaml (kustomize source only)"
   cat > "${BASE_DIR}/argocd-app.yaml" <<AA
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -963,8 +950,8 @@ spec:
     repoURL: ${REPO_URL}
     targetRevision: main
     path: manifests/base
-    directory:
-      recurse: true
+    kustomize:
+      buildOptions: --load-restrictor=LoadRestrictionsNone
   destination:
     server: https://kubernetes.default.svc
     namespace: ${NAMESPACE}
@@ -989,7 +976,7 @@ AA
 generate_readme(){
   info "writing README.md"
   cat > "${ROOT_DIR}/README.md" <<MD
-# ${APP_NAME} — All-in-One GitOps Stack
+# ${APP_NAME} — All-in-One GitOps Stack (final)
 
 Namespace: ${NAMESPACE}
 Repo: ${REPO_URL}
@@ -1004,7 +991,7 @@ Usage:
 Notes:
 - grafana-secret is a single file manifests/base/grafana-secret.yaml (no duplicates).
 - Ensure GHCR_PAT is configured in GitHub repo secrets for pushing images.
-- Vault here runs with TLS disabled for quick testing — configure TLS and storage backend for production.
+- Vault here runs with TLS disabled for quick testing — configure TLS and a persistent storage backend for production.
 MD
 }
 
@@ -1024,7 +1011,6 @@ generate_all(){
   generate_app_deployment
   generate_ingress
   generate_prometheus
-  generate_grafana_deployment   # grafana deployment already generated above (noop if re-run)
   generate_loki_promtail
   generate_tempo
   generate_kyverno
