@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-ingress
+  namespace: davtroallinone
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-svc
+                port:
+                  number: 80

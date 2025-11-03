@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-app
+  namespace: davtroallinone
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-app
+  template:
+    metadata:
+      labels:
+        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-app
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-role"
+        vault.hashicorp.com/agent-inject-secret-config.txt: "secret/data/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat/app"
+        vault.hashicorp.com/agent-inject-template-config.txt: |
+          {{- with secret "secret/data/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat/app" -}}
+          DATABASE_URL=postgresql://{{ .Data.data.username }}:{{ .Data.data.password }}@postgres:5432/appdb
+          REDIS_URL=redis://:{{ .Data.data.redis_password }}@redis:6379
+          KAFKA_BROKER=kafka:9092
+          SECRET_KEY_BASE={{ .Data.data.secret_key_base }}
+          {{- end }}
+    spec:
+      serviceAccountName: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+      containers:
+        - name: app
+          image: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:latest
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10

@@ -1,0 +1,19 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-namespace-label
+spec:
+  validationFailureAction: enforce
+  background: true
+  rules:
+    - name: require-namespace-label
+      match:
+        resources:
+          kinds:
+            - Namespace
+      validate:
+        message: "Namespace must have label 'team'."
+        pattern:
+          metadata:
+            labels:
+              team: "?*"

@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: davtroallinone
+
+resources:
+  - service-accounts.yaml
+  - vault-config.yaml
+  - vault-server.yaml
+  - vault-agent-injector.yaml
+  - secret-fallback.yaml
+  - postgres.yaml
+  - pgadmin.yaml
+  - redis.yaml
+  - kafka.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - prometheus-config.yaml
+  - prometheus-deployment.yaml
+  - grafana-deployment.yaml
+  - loki-config.yaml
+  - loki-deployment.yaml
+  - promtail-config.yaml
+  - promtail-deployment.yaml
+  - tempo-config.yaml
+  - tempo-deployment.yaml
+  - kyverno-policy.yaml
+  - argocd-app.yaml
