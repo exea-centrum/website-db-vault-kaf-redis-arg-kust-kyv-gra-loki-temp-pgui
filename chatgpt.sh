@@ -1,44 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# deep.sh - All-in-One production YAML generator (Vault + DB + Kafka + Redis + Observability + ArgoCD)
-# Usage:
-#   ./deep.sh generate
-# Then: git add . && git commit -m "init prod stack" && git push origin main
+# chatgpt.sh - All-in-one manifest generator
+# Generates manifests/base/* including Vault, Postgres, Redis, Kafka, app, Grafana (with separate secret),
+# monitoring stack, Kyverno, ArgoCD app, and GitHub Actions workflow.
 #
-# Defaults (change by editing variables below before running):
-APP_NAME="deepstack"
-ORG="your-org"
+# Usage:
+#   ./chatgpt.sh generate
+
+APP_NAME="website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat"
+ORG="exea-centrum"
 IMAGE="ghcr.io/${ORG}/${APP_NAME}:latest"
-NAMESPACE="production"
+NAMESPACE="davtrowebdbvault"
 REPO_URL="https://github.com/${ORG}/${APP_NAME}.git"
 
 ROOT_DIR="$(pwd)"
 MANIFESTS_DIR="${ROOT_DIR}/manifests"
 BASE_DIR="${MANIFESTS_DIR}/base"
-OVERLAYS_DIR="${MANIFESTS_DIR}/overlays/argocd"
 WORKFLOW_DIR="${ROOT_DIR}/.github/workflows"
 
-banner(){
-  echo "=============================================================="
-  echo "deep.sh — generating production YAML stack (namespace=${NAMESPACE})"
-  echo "Repo: ${REPO_URL}"
-  echo "Image: ${IMAGE}"
-  echo "=============================================================="
-}
-
-mkdir_p(){
-  mkdir -p "$@"
-}
+info(){ echo -e "\033[1;34m[chatgpt.sh]\033[0m $*"; }
+mkdir_p(){ mkdir -p "$@"; }
 
 generate_structure(){
-  banner
+  info "creating directories..."
   mkdir_p "${BASE_DIR}"
-  mkdir_p "${OVERLAYS_DIR}"
   mkdir_p "${WORKFLOW_DIR}"
 }
 
 generate_github_actions(){
+  info "writing .github/workflows/ci.yml"
   cat > "${WORKFLOW_DIR}/ci.yml" <<'GHA'
 name: CI/CD Build & Push
 
@@ -65,37 +56,30 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Login to registry (GHCR)
+      - name: Log in to GHCR
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      - name: Build and push
+      - name: Build and push image
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
-          tags: ghcr.io/your-org/deepstack:${{ github.sha }}
+          tags: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:${{ github.sha }}
 
-      - name: Create 'latest' tag
-        run: docker tag ghcr.io/your-org/deepstack:${{ github.sha }} ghcr.io/your-org/deepstack:latest && docker push ghcr.io/your-org/deepstack:latest
-
-      - name: (Optional) Bootstrap Vault secrets (if VAULT_ADDR & VAULT_TOKEN present in repo secrets)
-        if: ${{ secrets.VAULT_ADDR && secrets.VAULT_TOKEN }}
-        env:
-          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
-          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+      - name: Tag latest
         run: |
-          echo "Bootstrapping secrets to Vault (CI)..."
-          # Minimal example to write one secret (customize as needed)
-          curl -sS -X POST "${{ secrets.VAULT_ADDR }}/v1/secret/data/deepstack/db" -H "X-Vault-Token: ${{ secrets.VAULT_TOKEN }}" -d '{"data":{"username":"dbuser","password":"change_me_from_admin"}}'
+          docker tag ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:${{ github.sha }} ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:latest || true
+          docker push ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:latest || true
 GHA
 }
 
 generate_kustomization(){
-  cat > "${BASE_DIR}/kustomization.yaml" <<KUST
+  info "writing kustomization.yaml"
+  cat > "${BASE_DIR}/kustomization.yaml" <<K
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: ${NAMESPACE}
@@ -106,6 +90,7 @@ resources:
   - vault-server.yaml
   - vault-agent-injector.yaml
   - secret-fallback.yaml
+  - grafana-secret.yaml
   - postgres.yaml
   - pgadmin.yaml
   - redis.yaml
@@ -124,26 +109,30 @@ resources:
   - tempo-deployment.yaml
   - kyverno-policy.yaml
   - argocd-app.yaml
-KUST
+K
 }
 
 generate_service_accounts(){
+  info "writing service-accounts.yaml"
   cat > "${BASE_DIR}/service-accounts.yaml" <<SA
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: vault
-  namespace: ${NAMESPACE}
----
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: ${APP_NAME}
   namespace: ${NAMESPACE}
+imagePullSecrets:
+  - name: ghcr-pull-secret
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault
+  namespace: ${NAMESPACE}
 SA
 }
 
-generate_vault_config(){
+generate_vault(){
+  info "writing vault manifests"
   cat > "${BASE_DIR}/vault-config.yaml" <<VC
 apiVersion: v1
 kind: ConfigMap
@@ -155,12 +144,10 @@ data:
     storage "file" {
       path = "/vault/data"
     }
-
     listener "tcp" {
       address = "0.0.0.0:8200"
       tls_disable = "true"
     }
-
     ui = true
     disable_mlock = true
 VC
@@ -186,12 +173,12 @@ spec:
       containers:
         - name: vault
           image: hashicorp/vault:1.15.3
-          args: ["server", "-config=/vault/config/vault.hcl"]
+          args: ["server","-config=/vault/config/vault.hcl"]
           ports:
             - containerPort: 8200
           livenessProbe:
             httpGet:
-              path: /v1/sys/health
+              path: /v1/sys/health?standbyok=true
               port: 8200
             initialDelaySeconds: 15
             periodSeconds: 20
@@ -225,7 +212,6 @@ spec:
     app: vault
 VS
 
-  # Simple injector deployment (minimal, for demo purposes)
   cat > "${BASE_DIR}/vault-agent-injector.yaml" <<VAI
 apiVersion: apps/v1
 kind: Deployment
@@ -243,15 +229,14 @@ spec:
         app: vault-agent-injector
     spec:
       containers:
-        - name: injector
+        - name: vault-k8s
           image: hashicorp/vault-k8s:1.9.0
-          args: ["agent-injector"]
-          ports:
-            - containerPort: 8080
+          args: ["controller"]
 VAI
 }
 
 generate_secret_fallback(){
+  info "writing fallback secrets"
   cat > "${BASE_DIR}/secret-fallback.yaml" <<SF
 apiVersion: v1
 kind: Secret
@@ -262,16 +247,12 @@ type: Opaque
 stringData:
   username: postgres
   password: postgres123
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: pgadmin-secret
-  namespace: ${NAMESPACE}
-type: Opaque
-stringData:
-  password: pgadmin123
----
+SF
+}
+
+generate_grafana_secret(){
+  info "writing grafana-secret.yaml (single source of truth)"
+  cat > "${BASE_DIR}/grafana-secret.yaml" <<GS
 apiVersion: v1
 kind: Secret
 metadata:
@@ -279,11 +260,72 @@ metadata:
   namespace: ${NAMESPACE}
 type: Opaque
 stringData:
-  password: grafana123
-SF
+  admin-user: admin
+  admin-password: grafana123
+GS
+}
+
+generate_grafana_deployment(){
+  info "writing grafana-deployment.yaml (references grafana-secret)"
+  cat > "${BASE_DIR}/grafana-deployment.yaml" <<GD
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: ${NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.1.0
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secret
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secret
+                  key: admin-password
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+  volumeClaimTemplates:
+    - metadata:
+        name: grafana-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: ${NAMESPACE}
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: grafana
+GD
 }
 
 generate_postgres(){
+  info "writing postgres"
   cat > "${BASE_DIR}/postgres.yaml" <<PG
 apiVersion: apps/v1
 kind: StatefulSet
@@ -345,6 +387,7 @@ PG
 }
 
 generate_pgadmin(){
+  info "writing pgadmin"
   cat > "${BASE_DIR}/pgadmin.yaml" <<PGA
 apiVersion: apps/v1
 kind: Deployment
@@ -372,8 +415,8 @@ spec:
             - name: PGADMIN_DEFAULT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: pgadmin-secret
-                  key: password
+                  name: grafana-secret
+                  key: admin-password
 ---
 apiVersion: v1
 kind: Service
@@ -389,6 +432,7 @@ PGA
 }
 
 generate_redis(){
+  info "writing redis"
   cat > "${BASE_DIR}/redis.yaml" <<R
 apiVersion: apps/v1
 kind: StatefulSet
@@ -438,8 +482,9 @@ R
 }
 
 generate_kafka(){
-  cat > "${BASE_DIR}/kafka.yaml" <<K
-# Zookeeper (minimal)
+  info "writing kafka + zookeeper"
+  cat > "${BASE_DIR}/kafka.yaml" <<KAF
+# zookeeper
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -473,7 +518,7 @@ spec:
   selector:
     app: zookeeper
 
-# Kafka (minimal, single node)
+# kafka (single node)
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -522,10 +567,11 @@ spec:
     - port: 9092
   selector:
     app: kafka
-K
+KAF
 }
 
 generate_app_deployment(){
+  info "writing app deployment + service"
   cat > "${BASE_DIR}/deployment.yaml" <<DEP
 apiVersion: apps/v1
 kind: Deployment
@@ -583,6 +629,7 @@ SVC
 }
 
 generate_ingress(){
+  info "writing ingress"
   cat > "${BASE_DIR}/ingress.yaml" <<ING
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -607,6 +654,7 @@ ING
 }
 
 generate_prometheus(){
+  info "writing prometheus"
   cat > "${BASE_DIR}/prometheus-config.yaml" <<PC
 apiVersion: v1
 kind: ConfigMap
@@ -625,15 +673,6 @@ data:
           - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
             action: keep
             regex: true
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
-            action: replace
-            target_label: __metrics_path__
-            regex: (.+)
-          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
-            action: replace
-            regex: (.+);(.+)
-            replacement: ${1}:${2}
-            target_label: __address__
 PC
 
   cat > "${BASE_DIR}/prometheus-deployment.yaml" <<PD
@@ -685,62 +724,8 @@ spec:
 PD
 }
 
-generate_grafana(){
-  cat > "${BASE_DIR}/grafana-deployment.yaml" <<GD
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: grafana
-  namespace: ${NAMESPACE}
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: grafana
-  template:
-    metadata:
-      labels:
-        app: grafana
-    spec:
-      containers:
-        - name: grafana
-          image: grafana/grafana:11.1.0
-          env:
-            - name: GF_SECURITY_ADMIN_USER
-              value: admin
-            - name: GF_SECURITY_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: grafana-secret
-                  key: password
-          ports:
-            - containerPort: 3000
-          volumeMounts:
-            - name: grafana-data
-              mountPath: /var/lib/grafana
-  volumeClaimTemplates:
-    - metadata:
-        name: grafana-data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 5Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: grafana
-  namespace: ${NAMESPACE}
-spec:
-  ports:
-    - port: 3000
-  selector:
-    app: grafana
-GD
-}
-
 generate_loki_promtail(){
+  info "writing loki & promtail"
   cat > "${BASE_DIR}/loki-config.yaml" <<LKC
 apiVersion: v1
 kind: ConfigMap
@@ -876,6 +861,7 @@ PTD
 }
 
 generate_tempo(){
+  info "writing tempo"
   cat > "${BASE_DIR}/tempo-config.yaml" <<TC
 apiVersion: v1
 kind: ConfigMap
@@ -937,6 +923,7 @@ TD
 }
 
 generate_kyverno(){
+  info "writing kyverno policy"
   cat > "${BASE_DIR}/kyverno-policy.yaml" <<KY
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
@@ -961,51 +948,75 @@ KY
 }
 
 generate_argocd_app(){
+  info "writing argocd-app.yaml"
   cat > "${BASE_DIR}/argocd-app.yaml" <<AA
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: ${APP_NAME}-app
+  name: ${APP_NAME}
   namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: '${REPO_URL}'
+    repoURL: ${REPO_URL}
     targetRevision: main
     path: manifests/base
+    directory:
+      recurse: true
   destination:
-    server: 'https://kubernetes.default.svc'
+    server: https://kubernetes.default.svc
     namespace: ${NAMESPACE}
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - ApplyOutOfSyncOnly=true
+      - Validate=false
+  retry:
+    limit: 5
+    backoff:
+      duration: 10s
+      factor: 2
+      maxDuration: 2m
 AA
 }
 
 generate_readme(){
+  info "writing README.md"
   cat > "${ROOT_DIR}/README.md" <<MD
-# ${APP_NAME} — All-in-One Production GitOps Stack
+# ${APP_NAME} — All-in-One GitOps Stack
 
-Generated by deep.sh.
+Namespace: ${NAMESPACE}
+Repo: ${REPO_URL}
 
-How to use:
-1. Edit variables at top of deep.sh if you want to change ORG/IMAGE/REPO_URL/NAMESPACE.
-2. Run: ./deep.sh generate
-3. Commit & push to GitHub.
-4. Configure GitHub secret GHCR_PAT (for pushing to GHCR) and optionally VAULT_ADDR & VAULT_TOKEN (for bootstrap).
-5. Install ArgoCD in your cluster and apply manifests/argocd-app.yaml (or let ArgoCD watch this repo).
+Usage:
+  chmod +x chatgpt.sh
+  ./chatgpt.sh generate
+  git add .
+  git commit -m "init all-in-one"
+  git push origin main
+
+Notes:
+- grafana-secret is a single file manifests/base/grafana-secret.yaml (no duplicates).
+- Ensure GHCR_PAT is configured in GitHub repo secrets for pushing images.
+- Vault here runs with TLS disabled for quick testing — configure TLS and storage backend for production.
 MD
 }
 
-# Generate everything
 generate_all(){
   generate_structure
   generate_github_actions
   generate_kustomization
   generate_service_accounts
-  generate_vault_config
+  generate_vault
   generate_secret_fallback
+  generate_grafana_secret
+  generate_grafana_deployment
   generate_postgres
   generate_pgadmin
   generate_redis
@@ -1013,16 +1024,15 @@ generate_all(){
   generate_app_deployment
   generate_ingress
   generate_prometheus
-  generate_grafana
+  generate_grafana_deployment   # grafana deployment already generated above (noop if re-run)
   generate_loki_promtail
   generate_tempo
   generate_kyverno
   generate_argocd_app
   generate_readme
-  echo "✅ All manifests generated in ${BASE_DIR}"
+  info "All manifests generated in ${BASE_DIR}"
 }
 
-# CLI
 case "${1:-}" in
   generate)
     generate_all
@@ -1031,7 +1041,7 @@ case "${1:-}" in
     echo "Usage: $0 generate"
     ;;
   *)
-    echo "No command or unknown command. Use: $0 generate"
+    echo "No command provided. Use: $0 generate"
     exit 1
     ;;
 esac

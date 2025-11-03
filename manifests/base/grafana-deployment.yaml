@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: grafana
-  namespace: davtroallinone
+  namespace: davtrowebdbvault
 spec:
   replicas: 1
   selector:
@@ -18,12 +18,15 @@ spec:
           image: grafana/grafana:11.1.0
           env:
             - name: GF_SECURITY_ADMIN_USER
-              value: admin
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secret
+                  key: admin-user
             - name: GF_SECURITY_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: grafana-secret
-                  key: password
+                  key: admin-password
           ports:
             - containerPort: 3000
           volumeMounts:
@@ -39,19 +42,10 @@ spec:
             storage: 5Gi
 ---
 apiVersion: v1
-kind: Secret
-metadata:
-  name: grafana-secret
-  namespace: davtroallinone
-type: Opaque
-stringData:
-  password: "grafana123"
----
-apiVersion: v1
 kind: Service
 metadata:
   name: grafana
-  namespace: davtroallinone
+  namespace: davtrowebdbvault
 spec:
   ports:
     - port: 3000

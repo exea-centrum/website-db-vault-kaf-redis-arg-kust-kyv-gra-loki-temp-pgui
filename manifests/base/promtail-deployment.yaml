@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: promtail
-  namespace: davtroallinone
+  namespace: davtrowebdbvault
 spec:
   selector:
     matchLabels:
@@ -34,7 +34,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: promtail
-  namespace: davtroallinone
+  namespace: davtrowebdbvault
 spec:
   ports:
     - port: 9080

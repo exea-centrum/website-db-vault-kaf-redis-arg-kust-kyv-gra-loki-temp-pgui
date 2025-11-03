@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-config
-  namespace: davtroallinone
+  namespace: davtrowebdbvault
 data:
   prometheus.yml: |
     global:

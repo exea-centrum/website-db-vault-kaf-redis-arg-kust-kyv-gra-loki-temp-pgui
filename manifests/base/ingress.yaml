@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-ingress
-  namespace: davtroallinone
+  namespace: davtrowebdbvault
   annotations:
     kubernetes.io/ingress.class: nginx
 spec:
