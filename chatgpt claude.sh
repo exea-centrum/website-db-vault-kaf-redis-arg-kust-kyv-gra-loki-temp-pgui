@@ -1383,23 +1383,25 @@ KY
 # ==============================
 generate_argocd_app(){
   info "Generowanie ArgoCD Application..."
-  cat > "${BASE_DIR}/argocd-app.yaml" <<'AA'
+  cat > "${BASE_DIR}/argocd-app.yaml" <<AA
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: website-db-stack
+  name: ${PROJECT}
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: https://github.com/exea-centrum/website-db-argocd-kustomize-kyverno-grafana-loki-tempo-pgadmin.git
-    targetRevision: HEAD
+    repoURL: ${REPO_URL}
+    targetRevision: main
     path: manifests/base
+    kustomize:
+      buildOptions: --load-restrictor=LoadRestrictionsNone
   destination:
     server: https://kubernetes.default.svc
-    namespace: davtrowebdb
+    namespace: ${NAMESPACE}
   syncPolicy:
     automated:
       prune: true
@@ -1407,53 +1409,13 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - PrunePropagationPolicy=foreground
-      - ServerSideApply=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
+  retry:
+    limit: 5
+    backoff:
+      duration: 10s
+      factor: 2
+      maxDuration: 2m
 AA
-}
-
-# ==============================
-# STANDALONE ARGOCD APP (do apply z CLI)
-# ==============================
-generate_argocd_standalone(){
-  info "Generowanie standalone ArgoCD Application (poza kustomization)..."
-  cat > "${ROOT_DIR}/argocd-application.yaml" <<'STANDALONE'
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: website-db-stack
-  namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/exea-centrum/website-db-argocd-kustomize-kyverno-grafana-loki-tempo-pgadmin.git
-    targetRevision: HEAD
-    path: manifests/base
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: davtrowebdb
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - PrunePropagationPolicy=foreground
-      - ServerSideApply=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
-STANDALONE
 }
 
 # ==============================
@@ -1461,11 +1423,11 @@ STANDALONE
 # ==============================
 generate_kustomization(){
   info "Generowanie kustomization.yaml..."
-  cat > "${BASE_DIR}/kustomization.yaml" <<'K'
+  cat > "${BASE_DIR}/kustomization.yaml" <<K
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: davtrowebdb
+namespace: ${NAMESPACE}
 
 resources:
   - service-account.yaml
@@ -1491,14 +1453,14 @@ resources:
   - tempo-config.yaml
   - tempo-deployment.yaml
   - kyverno-policy.yaml
+  - argocd-app.yaml
 
 commonLabels:
-  app: website-db-stack
+  app: ${PROJECT}
   environment: development
-  managed-by: argocd
 
 images:
-  - name: ghcr.io/exea-centrum/website-db-argocd-kustomize-kyverno-grafana-loki-tempo-pgadmin
+  - name: ${REGISTRY}
     newTag: latest
 K
 }
@@ -1547,84 +1509,18 @@ chmod +x unified-deployment.sh
 ./unified-deployment.sh generate
 \`\`\`
 
-### 2. Inicjalizacja i push do GitHub
+### 2. Inicjalizacja repozytorium
 \`\`\`bash
 git init
 git add .
 git commit -m "Initial commit - unified stack"
-git branch -M main
 git remote add origin ${REPO_URL}
 git push -u origin main
 \`\`\`
 
-### 3. Weryfikacja lokalnie (opcjonalnie)
+### 3. Deploy z ArgoCD
 \`\`\`bash
-# Sprawdź czy Kustomize działa
-kubectl kustomize manifests/base
-
-# Sprawdź strukturę
-tree manifests/
-\`\`\`
-
-### 4. Deploy z ArgoCD
-\`\`\`bash
-# Upewnij się że ArgoCD jest zainstalowany
-kubectl get namespace argocd
-
-# Zastosuj Application manifest
-kubectl apply -f argocd-application.yaml
-
-# Sprawdź status
-kubectl get applications -n argocd
-kubectl describe application website-db-stack -n argocd
-
-# Zobacz logi sync
-kubectl logs -n argocd -l app.kubernetes.io/name=argocd-application-controller
-\`\`\`
-
-### 5. Debug jeśli są problemy
-\`\`\`bash
-# Sprawdź czy repo jest dostępne dla ArgoCD
-argocd repo list
-
-# Dodaj repo jeśli nie ma
-argocd repo add ${REPO_URL}
-
-# Sprawdź czy manifesty są poprawne
-kubectl kustomize manifests/base | kubectl apply --dry-run=client -f -
-\`\`\`
-
-## ⚠️ Typowe problemy
-
-### "app path does not exist"
-**Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna.
-
-**Rozwiązanie**:
-1. Upewnij się że zrobiłeś `git push` po generowaniu
-2. Sprawdź czy folder `manifests/base/` istnieje w repo na GitHub
-3. Sprawdź czy plik `manifests/base/kustomization.yaml` jest dostępny
-
-### "Unable to generate manifests"
-**Przyczyna**: Błąd w kustomization.yaml lub brakujący plik.
-
-**Rozwiązanie**:
-\`\`\`bash
-# Test lokalny
-kubectl kustomize manifests/base
-
-# Sprawdź czy wszystkie pliki istnieją
-ls -la manifests/base/
-\`\`\`
-
-### ArgoCD nie widzi repo
-**Rozwiązanie**:
-\`\`\`bash
-# Dodaj credentials dla prywatnego repo
-kubectl create secret generic repo-creds \\
-  --from-literal=url=${REPO_URL} \\
-  --from-literal=password=YOUR_GITHUB_TOKEN \\
-  --from-literal=username=YOUR_GITHUB_USERNAME \\
-  -n argocd
+kubectl apply -f manifests/base/argocd-app.yaml
 \`\`\`
 
 ## 🌐 Dostęp
@@ -1741,7 +1637,6 @@ generate_all(){
   generate_tempo
   generate_kyverno
   generate_argocd_app
-  generate_argocd_standalone
   generate_kustomization
   generate_readme
   
@@ -1753,7 +1648,6 @@ generate_all(){
   echo "   ✓ Dockerfile"
   echo "   ✓ GitHub Actions workflow"
   echo "   ✓ Kubernetes manifesty w manifests/base/"
-  echo "   ✓ argocd-application.yaml (standalone w root)"
   echo "   ✓ README.md"
   echo ""
   echo "🎯 Komponenty:"
@@ -1768,32 +1662,10 @@ generate_all(){
   echo "   ✓ Kyverno (policies)"
   echo ""
   echo "🚀 Następne kroki:"
-  echo ""
-  echo "1️⃣ Inicjalizacja Git i push:"
-  echo "   git init"
-  echo "   git add ."
-  echo "   git commit -m 'Initial commit - unified stack'"
-  echo "   git branch -M main"
-  echo "   git remote add origin ${REPO_URL}"
-  echo "   git push -u origin main"
-  echo ""
-  echo "2️⃣ Weryfikacja struktury:"
-  echo "   tree manifests/"
-  echo ""
-  echo "3️⃣ Test lokalny Kustomize:"
-  echo "   kubectl kustomize manifests/base"
-  echo ""
-  echo "4️⃣ Deploy ArgoCD Application (po push do repo):"
-  echo "   kubectl apply -f argocd-application.yaml"
-  echo ""
-  echo "5️⃣ Sprawdź status w ArgoCD:"
-  echo "   kubectl get applications -n argocd"
-  echo "   kubectl describe application website-db-stack -n argocd"
-  echo ""
-  echo "⚠️  WAŻNE: Upewnij się że:"
-  echo "   ✓ Repozytorium ${REPO_URL} istnieje"
-  echo "   ✓ ArgoCD jest zainstalowany (kubectl get ns argocd)"
-  echo "   ✓ Folder manifests/base/ zawiera wszystkie pliki"
+  echo "   1. git init && git add . && git commit -m 'init'"
+  echo "   2. git remote add origin ${REPO_URL}"
+  echo "   3. git push -u origin main"
+  echo "   4. kubectl apply -f manifests/base/argocd-app.yaml"
   echo ""
   echo "🌐 Dostęp:"
   echo "   App: http://${PROJECT}.local"

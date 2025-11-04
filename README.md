@@ -36,18 +36,84 @@ chmod +x unified-deployment.sh
 ./unified-deployment.sh generate
 ```
 
-### 2. Inicjalizacja repozytorium
+### 2. Inicjalizacja i push do GitHub
 ```bash
 git init
 git add .
 git commit -m "Initial commit - unified stack"
+git branch -M main
 git remote add origin https://github.com/exea-centrum/website-db-argocd-kustomize-kyverno-grafana-loki-tempo-pgadmin.git
 git push -u origin main
 ```
 
-### 3. Deploy z ArgoCD
+### 3. Weryfikacja lokalnie (opcjonalnie)
 ```bash
-kubectl apply -f manifests/base/argocd-app.yaml
+# Sprawdź czy Kustomize działa
+kubectl kustomize manifests/base
+
+# Sprawdź strukturę
+tree manifests/
+```
+
+### 4. Deploy z ArgoCD
+```bash
+# Upewnij się że ArgoCD jest zainstalowany
+kubectl get namespace argocd
+
+# Zastosuj Application manifest
+kubectl apply -f argocd-application.yaml
+
+# Sprawdź status
+kubectl get applications -n argocd
+kubectl describe application website-db-stack -n argocd
+
+# Zobacz logi sync
+kubectl logs -n argocd -l app.kubernetes.io/name=argocd-application-controller
+```
+
+### 5. Debug jeśli są problemy
+```bash
+# Sprawdź czy repo jest dostępne dla ArgoCD
+argocd repo list
+
+# Dodaj repo jeśli nie ma
+argocd repo add https://github.com/exea-centrum/website-db-argocd-kustomize-kyverno-grafana-loki-tempo-pgadmin.git
+
+# Sprawdź czy manifesty są poprawne
+kubectl kustomize manifests/base | kubectl apply --dry-run=client -f -
+```
+
+## ⚠️ Typowe problemy
+
+### "app path does not exist"
+**Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna.
+
+**Rozwiązanie**:
+1. Upewnij się że zrobiłeś  po generowaniu
+2. Sprawdź czy folder  istnieje w repo na GitHub
+3. Sprawdź czy plik  jest dostępny
+
+### "Unable to generate manifests"
+**Przyczyna**: Błąd w kustomization.yaml lub brakujący plik.
+
+**Rozwiązanie**:
+```bash
+# Test lokalny
+kubectl kustomize manifests/base
+
+# Sprawdź czy wszystkie pliki istnieją
+ls -la manifests/base/
+```
+
+### ArgoCD nie widzi repo
+**Rozwiązanie**:
+```bash
+# Dodaj credentials dla prywatnego repo
+kubectl create secret generic repo-creds \
+  --from-literal=url=https://github.com/exea-centrum/website-db-argocd-kustomize-kyverno-grafana-loki-tempo-pgadmin.git \
+  --from-literal=password=YOUR_GITHUB_TOKEN \
+  --from-literal=username=YOUR_GITHUB_USERNAME \
+  -n argocd
 ```
 
 ## 🌐 Dostęp

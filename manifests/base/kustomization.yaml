@@ -27,11 +27,11 @@ resources:
   - tempo-config.yaml
   - tempo-deployment.yaml
   - kyverno-policy.yaml
-  - argocd-app.yaml
 
 commonLabels:
-  app: website-db-argocd-kustomize-kyverno-grafana-loki-tempo-pgadmin
+  app: website-db-stack
   environment: development
+  managed-by: argocd
 
 images:
   - name: ghcr.io/exea-centrum/website-db-argocd-kustomize-kyverno-grafana-loki-tempo-pgadmin
