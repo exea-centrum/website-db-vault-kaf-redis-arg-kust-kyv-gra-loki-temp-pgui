@@ -2,14 +2,13 @@
 set -euo pipefail
 
 # Unified deployment script - combines website app with full GitOps stack
-# Generates FastAPI app + Kubernetes manifests with ArgoCD, Vault, Postgres, Redis, Kafka (KRaft), Grafana, Prometheus, Loki, Tempo, Kyverno
+# Generates FastAPI app + Kubernetes manifests with ArgoCD, Vault, Postgres, Redis, Kafka, Grafana, Prometheus, Loki, Tempo, Kyverno
 
 PROJECT="website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat"
 NAMESPACE="davtrowebdbvault"
 ORG="exea-centrum"
 REGISTRY="ghcr.io/${ORG}/${PROJECT}"
 REPO_URL="https://github.com/${ORG}/${PROJECT}.git"
-KAFKA_CLUSTER_ID="4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ" # Stały ID dla jedno-węzłowego KRaft
 
 ROOT_DIR="$(pwd)"
 APP_DIR="app"
@@ -29,11 +28,10 @@ generate_structure(){
 }
 
 # ==============================
-# FASTAPI APLIKACJA
-# (Bez zmian, kod jest poprawny)
+# FASTAPI APLIKACJA (Z KAFKA I TRACINGIEM DLA TEMPO)
 # ==============================
 generate_fastapi_app(){
-  info "Generowanie FastAPI aplikacji z ankietą..."
+  info "Generowanie FastAPI aplikacji z Kafka i Tracingiem..."
   
   cat << 'EOF' > "$APP_DIR/main.py"
 from fastapi import FastAPI, Form, Request, HTTPException
@@ -48,10 +46,22 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import time
+import json
+
+# Wymagane importy dla Kafka
+from kafka import KafkaProducer
+
+# Wymagane importy dla OpenTelemetry
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
 
 app = FastAPI(title="Dawid Trojanowski - Strona Osobista")
 templates = Jinja2Templates(directory="templates")
-# app.mount("/static", StaticFiles(directory="static"), name="static") # Zakomentowane, bo brak folderu static
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("fastapi_app")
 
@@ -65,8 +75,55 @@ app.add_middleware(
 )
 
 DB_CONN = os.getenv("DATABASE_URL", "dbname=appdb user=appuser password=apppass host=postgres")
+KAFKA_SERVER = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+OTEL_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://tempo:4317")
+SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "website-app")
+
 
 Instrumentator().instrument(app).expose(app)
+
+# ========================================================
+# 1. KONFIGURACJA TRACINGU (OpenTelemetry dla Tempo)
+# ========================================================
+
+resource = Resource.create(attributes={
+    "service.name": SERVICE_NAME
+})
+
+trace.set_tracer_provider(
+    TracerProvider(resource=resource)
+)
+tracer = trace.get_tracer(__name__)
+
+# Konfiguracja eksportu do Tempo (OTLP over gRPC)
+otlp_exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT)
+span_processor = BatchSpanProcessor(otlp_exporter)
+trace.get_tracer_provider().add_span_processor(span_processor)
+
+# Instrumentacja FastAPI (automatyczne ślady)
+FastAPIInstrumentor.instrument_app(app, tracer_provider=trace.get_tracer_provider())
+
+
+# ========================================================
+# 2. KONFIGURACJA KAFKA
+# ========================================================
+
+def get_kafka_producer():
+    """Inicjalizacja producenta Kafka."""
+    try:
+        producer = KafkaProducer(
+            bootstrap_servers=KAFKA_SERVER.split(','),
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            api_version=(0, 10, 1) # Zgodność z nowszymi wersjami
+        )
+        logger.info(f"Kafka Producer initialized for {KAFKA_SERVER}")
+        return producer
+    except Exception as e:
+        logger.error(f"Failed to initialize Kafka Producer: {e}")
+        return None
+
+KAFKA_PRODUCER = get_kafka_producer()
+
 
 class SurveyResponse(BaseModel):
     question: str
@@ -140,19 +197,27 @@ def init_database():
 async def startup_event():
     init_database()
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    if KAFKA_PRODUCER:
+        KAFKA_PRODUCER.close()
+        logger.info("Kafka Producer closed.")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     """Główna strona osobista"""
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO page_visits (page) VALUES ('home')")
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error logging page visit: {e}")
-    
+    with tracer.start_as_current_span("db-log-visit"):
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("INSERT INTO page_visits (page) VALUES ('home')")
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error logging page visit: {e}")
+        
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/health")
@@ -172,6 +237,7 @@ async def health_check():
 @app.get("/api/survey/questions")
 async def get_survey_questions():
     """Pobiera listę pytań do ankiety"""
+    # ... (pytania ankiety bez zmian)
     questions = [
         {
             "id": 1,
@@ -208,26 +274,48 @@ async def get_survey_questions():
 
 @app.post("/api/survey/submit")
 async def submit_survey(response: SurveyResponse):
-    """Zapisuje odpowiedź z ankiety"""
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO survey_responses (question, answer) VALUES (%s, %s)",
-            (response.question, response.answer)
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        logger.info(f"Survey response saved: {response.question} -> {response.answer}")
-        return {"status": "success", "message": "Dziękujemy za wypełnienie ankiety!"}
-    except Exception as e:
-        logger.error(f"Error saving survey response: {e}")
-        raise HTTPException(status_code=500, detail="Błąd podczas zapisywania odpowiedzi")
+    """Zapisuje odpowiedź z ankiety i wysyła do Kafka"""
+    
+    with tracer.start_as_current_span("save-to-postgres"):
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO survey_responses (question, answer) VALUES (%s, %s)",
+                (response.question, response.answer)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            logger.info(f"Survey response saved to DB: {response.question} -> {response.answer}")
+        except Exception as e:
+            logger.error(f"Error saving survey response to DB: {e}")
+            raise HTTPException(status_code=500, detail="Błąd podczas zapisywania odpowiedzi w DB")
+
+    with tracer.start_as_current_span("send-to-kafka"):
+        if KAFKA_PRODUCER:
+            message = {
+                "question": response.question,
+                "answer": response.answer,
+                "timestamp": time.time()
+            }
+            try:
+                # Wysłanie wiadomości do topicu
+                KAFKA_PRODUCER.send('survey-topic', value=message)
+                logger.info(f"Message sent to Kafka topic 'survey-topic'")
+            except Exception as e:
+                logger.error(f"Error sending message to Kafka: {e}")
+                # Kontynuujemy pomimo błędu Kafka, bo zapis do DB się powiódł
+                pass
+        else:
+            logger.warning("Kafka Producer is not initialized. Skipping message send.")
+
+
+    return {"status": "success", "message": "Dziękujemy za wypełnienie ankiety! (Zapisano i wysłano do Kafka)"}
 
 @app.get("/api/survey/stats")
 async def get_survey_stats():
-    """Pobiera statystyki ankiet"""
+    # ... (Statystyki bez zmian)
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -326,6 +414,11 @@ psycopg2-binary==2.9.7
 prometheus-fastapi-instrumentator==5.11.1
 python-multipart==0.0.6
 pydantic==2.5.0
+kafka-python==2.0.2  # <--- NOWA ZALEŻNOŚĆ
+opentelemetry-api==1.22.0 # <--- NOWA ZALEŻNOŚĆ
+opentelemetry-sdk==1.22.0 # <--- NOWA ZALEŻNOŚĆ
+opentelemetry-instrumentation-fastapi==0.43b0 # <--- NOWA ZALEŻNOŚĆ
+opentelemetry-exporter-otlp==1.22.0 # <--- NOWA ZALEŻNOŚĆ
 EOF
 }
 
@@ -484,7 +577,7 @@ imagePullSecrets:
   - name: ghcr-pull-secret
 EOF
 
-  # App Deployment
+  # App Deployment (Zaktualizowano: Dodano konfigurację Kafka i OpenTelemetry)
   cat > "${BASE_DIR}/deployment.yaml" <<EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -502,7 +595,6 @@ spec:
     metadata:
       labels:
         app: ${PROJECT}
-        environment: development # Dodano etykietę dla Kyverno
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
@@ -539,6 +631,16 @@ spec:
             configMapKeyRef:
               name: ${PROJECT}-config
               key: DATABASE_URL
+        # KONFIGURACJA KAFKA
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: kafka:9092
+        # KONFIGURACJA TRACINGU DLA TEMPO (OTLP)
+        - name: OTEL_SERVICE_NAME
+          value: ${PROJECT}-fastapi
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://tempo:4317 # Tempo OTLP gRPC endpoint
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: grpc
         resources:
           requests:
             memory: "256Mi"
@@ -634,8 +736,6 @@ kind: StatefulSet
 metadata:
   name: postgres
   namespace: davtrowebdbvault
-  labels:
-    app: postgres # Dodano etykietę dla Kyverno
 spec:
   serviceName: postgres
   replicas: 1
@@ -646,7 +746,6 @@ spec:
     metadata:
       labels:
         app: postgres
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: postgres
@@ -716,8 +815,6 @@ kind: Deployment
 metadata:
   name: pgadmin
   namespace: ${NAMESPACE}
-  labels:
-    app: pgadmin # Dodano etykietę dla Kyverno
 spec:
   replicas: 1
   selector:
@@ -727,7 +824,6 @@ spec:
     metadata:
       labels:
         app: pgadmin
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       initContainers:
       - name: wait-for-db
@@ -807,8 +903,6 @@ kind: StatefulSet
 metadata:
   name: vault
   namespace: ${NAMESPACE}
-  labels:
-    app: vault # Dodano etykietę dla Kyverno
 spec:
   serviceName: vault
   replicas: 1
@@ -819,7 +913,6 @@ spec:
     metadata:
       labels:
         app: vault
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: vault
@@ -869,8 +962,6 @@ kind: StatefulSet
 metadata:
   name: redis
   namespace: ${NAMESPACE}
-  labels:
-    app: redis # Dodano etykietę dla Kyverno
 spec:
   serviceName: redis
   replicas: 1
@@ -881,7 +972,6 @@ spec:
     metadata:
       labels:
         app: redis
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: redis
@@ -915,39 +1005,21 @@ R
 }
 
 # ==============================
-# KAFKA (Zmieniono na KRaft)
+# KAFKA (KRAFT MODE)
 # ==============================
 generate_kafka(){
-  info "Generowanie Kafka (tryb KRaft)..."
+  info "Generowanie Kafka (Kraft Mode)..."
+  # Stały Cluster ID dla uproszczenia w konfiguracji single-node
+  KRAFT_CLUSTER_ID="2gXyE8fQfA39k-h-t83S4Q" 
+  
+  cat > "${BASE_DIR}/kafka.yaml" <<KAF
+# Usunięto Zookeeper - Używamy Kraft (Kafka Raft)
 
-  cat > "${BASE_DIR}/kafka-config-kraft.yaml" <<EOF
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: kafka-config-kraft
-  namespace: ${NAMESPACE}
-data:
-  KAFKA_CLUSTER_ID: "${KAFKA_CLUSTER_ID}"
-  KAFKA_NODE_ID: "0"
-  KAFKA_PROCESS_ROLES: "broker,controller"
-  # Wymaga FQDN: kafka-0.kafka
-  KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
-  KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
-  KAFKA_CONTROLLER_QUORUM_VOTERS: "0@kafka-0.kafka:9093"
-  ALLOW_PLAINTEXT_LISTENER: "yes"
-  KAFKA_CFG_LOG_DIRS: "/bitnami/kafka/data/kraft-combined-logs"
-  # Dodatkowe: nowszy image i tag
-  KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
-EOF
-
-  cat > "${BASE_DIR}/kafka-kraft.yaml" <<KAF
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: kafka
-  namespace: ${NAMESPACE}
-  labels:
-    app: kafka
+  namespace: ${NAMESPACE} 
 spec:
   serviceName: kafka
   replicas: 1
@@ -958,38 +1030,64 @@ spec:
     metadata:
       labels:
         app: kafka
-        environment: development # Dodano etykietę dla Kyverno
     spec:
-      containers:
-      - name: kafka
-        image: bitnami/kafka:3.8.0 # Poprawiony, stabilny tag
-        envFrom:
-        - configMapRef:
-            name: kafka-config-kraft
-        ports:
-        - containerPort: 9092
-          name: plaintext
-        - containerPort: 9093
-          name: controller
-        command:
-        - sh
-        - -c
-        - |
-          # Logika inicjalizacji KRaft (zgodna z błędem w Podzie)
-          if [ ! -d "/bitnami/kafka/data/kraft-combined-logs/__cluster_metadata" ]; then
-            echo "Inicjalizacja KRaft storage..."
-            /opt/bitnami/kafka/bin/kafka-storage.sh format \
-              --ignore-formatted \
-              --config /opt/bitnami/kafka/config/server.properties \
-              --cluster-id \${KAFKA_CLUSTER_ID}
-          fi
-          
-          echo "Uruchamianie brokera/kontrolera KRaft..."
-          # Zamiast server-start.sh używam run.sh, który lepiej obsługuje konfigurację Bitnami
-          /opt/bitnami/kafka/bin/kafka-run.sh start
+      initContainers:
+      - name: kafka-storage-format
+        image: bitnami/kafka:3.8.0
+        command: ['sh', '-c', 'kafka-storage format --cluster-id ${KRAFT_CLUSTER_ID} -t ${KRAFT_CLUSTER_ID} -c /opt/bitnami/kafka/config/server.properties -R']
+        env:
+        # Używamy minimalnej konfiguracji do formatowania
+        - name: KAFKA_CFG_NODE_ID
+          value: "1"
+        - name: KAFKA_CFG_PROCESS_ROLES
+          value: "controller,broker"
+        - name: KAFKA_CFG_LISTENERS
+          value: "PLAINTEXT://:9092,CONTROLLER://:9093"
+        - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+          value: "1@kafka:9093"
+        - name: KAFKA_CFG_LOG_DIRS
+          value: /bitnami/kafka/data
         volumeMounts:
         - name: kafka-data
           mountPath: /bitnami/kafka
+      containers:
+      - name: kafka
+        image: bitnami/kafka:3.8.0
+        env:
+        # KONFIGURACJA KRAFT
+        - name: KAFKA_CFG_NODE_ID
+          value: "1"
+        - name: KAFKA_CFG_PROCESS_ROLES
+          value: "controller,broker"
+        - name: KAFKA_CFG_LISTENERS
+          value: "PLAINTEXT://:9092,CONTROLLER://:9093"
+        - name: KAFKA_CFG_ADVERTISED_LISTENERS
+          value: "PLAINTEXT://kafka:9092"
+        - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+          value: "1@kafka:9093"
+        - name: KAFKA_KRAFT_CLUSTER_ID
+          value: "${KRAFT_CLUSTER_ID}"
+        - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+          value: "CONTROLLER"
+        # Ustawienia pamięci
+        - name: KAFKA_HEAP_OPTS
+          value: "-Xmx512M -Xms512M"
+        # Pozostałe
+        - name: ALLOW_PLAINTEXT_LISTENER
+          value: "yes"
+        ports:
+        - containerPort: 9092 # Broker
+        - containerPort: 9093 # Controller
+        volumeMounts:
+        - name: kafka-data
+          mountPath: /bitnami/kafka
+        resources:
+          requests:
+            memory: "768Mi"
+            cpu: "300m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
   volumeClaimTemplates:
   - metadata:
       name: kafka-data
@@ -1005,22 +1103,20 @@ metadata:
   name: kafka
   namespace: ${NAMESPACE}
 spec:
-  clusterIP: None # Wymagane dla statefulset
-  selector:
-    app: kafka
   ports:
-  - name: plaintext
+  - name: broker
     port: 9092
     targetPort: 9092
   - name: controller
     port: 9093
     targetPort: 9093
+  selector:
+    app: kafka
 KAF
 }
 
 # ==============================
 # PROMETHEUS
-# (Dodano etykiety dla Kyverno)
 # ==============================
 generate_prometheus(){
   info "Generowanie Prometheus..."
@@ -1047,8 +1143,6 @@ kind: Deployment
 metadata:
   name: prometheus
   namespace: ${NAMESPACE}
-  labels:
-    app: prometheus # Dodano etykietę dla Kyverno
 spec:
   replicas: 1
   selector:
@@ -1058,7 +1152,6 @@ spec:
     metadata:
       labels:
         app: prometheus
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: prometheus
@@ -1089,7 +1182,6 @@ PD
 
 # ==============================
 # GRAFANA
-# (Dodano etykiety dla Kyverno)
 # ==============================
 generate_grafana(){
   info "Generowanie Grafana..."
@@ -1111,8 +1203,6 @@ kind: Deployment
 metadata:
   name: grafana
   namespace: ${NAMESPACE}
-  labels:
-    app: grafana # Dodano etykietę dla Kyverno
 spec:
   replicas: 1
   selector:
@@ -1122,7 +1212,6 @@ spec:
     metadata:
       labels:
         app: grafana
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: grafana
@@ -1163,7 +1252,6 @@ GD
 
 # ==============================
 # LOKI
-# (Dodano etykiety dla Kyverno)
 # ==============================
 generate_loki(){
   info "Generowanie Loki..."
@@ -1205,8 +1293,6 @@ kind: Deployment
 metadata:
   name: loki
   namespace: ${NAMESPACE}
-  labels:
-    app: loki # Dodano etykietę dla Kyverno
 spec:
   replicas: 1
   selector:
@@ -1216,7 +1302,6 @@ spec:
     metadata:
       labels:
         app: loki
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: loki
@@ -1232,23 +1317,11 @@ spec:
       - name: config
         configMap:
           name: loki-config
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: loki
-  namespace: ${NAMESPACE}
-spec:
-  ports:
-  - port: 3100
-  selector:
-    app: loki
 LKD
 }
 
 # ==============================
 # PROMTAIL
-# (Dodano etykiety dla Kyverno)
 # ==============================
 generate_promtail(){
   info "Generowanie Promtail..."
@@ -1283,8 +1356,6 @@ kind: Deployment
 metadata:
   name: promtail
   namespace: ${NAMESPACE}
-  labels:
-    app: promtail # Dodano etykietę dla Kyverno
 spec:
   replicas: 1
   selector:
@@ -1294,7 +1365,6 @@ spec:
     metadata:
       labels:
         app: promtail
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: promtail
@@ -1317,8 +1387,7 @@ PTD
 }
 
 # ==============================
-# TEMPO
-# (Dodano etykiety dla Kyverno)
+# TEMPO (Zaktualizowano: Dodano porty OTLP)
 # ==============================
 generate_tempo(){
   info "Generowanie Tempo..."
@@ -1336,8 +1405,8 @@ data:
       receivers:
         otlp:
           protocols:
+            grpc: # <--- WAŻNE: Odbiera ślady z aplikacji
             http:
-            grpc:
     storage:
       trace:
         backend: local
@@ -1351,8 +1420,6 @@ kind: Deployment
 metadata:
   name: tempo
   namespace: ${NAMESPACE}
-  labels:
-    app: tempo # Dodano etykietę dla Kyverno
 spec:
   replicas: 1
   selector:
@@ -1362,7 +1429,6 @@ spec:
     metadata:
       labels:
         app: tempo
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: tempo
@@ -1371,6 +1437,8 @@ spec:
           - -config.file=/etc/tempo/tempo.yaml
         ports:
         - containerPort: 3200
+        - containerPort: 4317 # OTLP gRPC
+        - containerPort: 4318 # OTLP HTTP
         volumeMounts:
         - name: config
           mountPath: /etc/tempo
@@ -1390,7 +1458,15 @@ metadata:
   namespace: ${NAMESPACE}
 spec:
   ports:
-  - port: 3200
+  - name: tempo-http
+    port: 3200
+    targetPort: 3200
+  - name: otlp-grpc
+    port: 4317 # Port dla OpenTelemetry (gRPC)
+    targetPort: 4317
+  - name: otlp-http
+    port: 4318 # Port dla OpenTelemetry (HTTP)
+    targetPort: 4318
   selector:
     app: tempo
 TD
@@ -1415,10 +1491,8 @@ spec:
       - resources:
           kinds:
           - Pod
-          - Deployment
-          - StatefulSet
     validate:
-      message: "Labels 'app' and 'environment' are required for all Pods, Deployments and StatefulSets."
+      message: "Labels 'app' and 'environment' are required."
       pattern:
         metadata:
           labels:
@@ -1525,8 +1599,7 @@ resources:
   - postgres.yaml
   - pgadmin.yaml
   - redis.yaml
-  - kafka-config-kraft.yaml # NOWA konfiguracja KRaft
-  - kafka-kraft.yaml        # NOWY manifest KRaft
+  - kafka.yaml
   - deployment.yaml
   - service.yaml
   - ingress.yaml
@@ -1554,20 +1627,19 @@ K
 }
 
 # ==============================
-# README
-# (Zaktualizowano o Kafka KRaft)
+# README (Zaktualizowana)
 # ==============================
 generate_readme(){
   info "Generowanie README.md..."
   cat > "${ROOT_DIR}/README.md" <<MD
-# ${PROJECT} - Unified GitOps Stack
+# ${PROJECT} - Unified GitOps Stack (Zintegrowane Kafka i Tracing)
 
 🚀 **Kompleksowa aplikacja z pełnym stack'iem DevOps**
 
 ## 📋 Komponenty
 
 ### Aplikacja
-- **FastAPI** - Strona osobista z ankietą
+- **FastAPI** - Strona osobista z ankietą. **Wysyła wiadomości do Kafka i Tracing do Tempo.**
 - **PostgreSQL** - Baza danych
 - **pgAdmin** - Zarządzanie bazą danych
 
@@ -1580,14 +1652,14 @@ generate_readme(){
 - **Vault** - Zarządzanie sekretami
 
 ### Messaging & Cache
-- **Kafka (KRaft)** - Kolejka wiadomości (tryb bez Zookeepera)
+- **Kafka (Kraft Mode)** - Kolejka wiadomości bez Zookeepera. **Aplikacja FastAPI jest Producentem.**
 - **Redis** - Cache i kolejki
 
-### Monitoring & Observability
+### Monitoring & Observability (Pełny Trójkąt)
 - **Prometheus** - Metryki
-- **Grafana** - Wizualizacja
-- **Loki** - Logi
-- **Tempo** - Distributed tracing
+- **Grafana** - Wizualizacja (Metryki, Logi, Ślady)
+- **Loki** - Logi (Współpracuje z Promtail)
+- **Tempo** - Distributed tracing. **Zbiera ślady OpenTelemetry z FastAPI.**
 - **Promtail** - Agregacja logów
 
 ## 🚀 Użycie
@@ -1602,7 +1674,7 @@ chmod +x unified-deployment.sh
 \`\`\`bash
 git init
 git add .
-git commit -m "Initial commit - unified stack with Kafka KRaft"
+git commit -m "Initial commit - unified stack with Kafka (Kraft) and Tempo tracing"
 git branch -M main
 git remote add origin ${REPO_URL}
 git push -u origin main
@@ -1628,17 +1700,54 @@ kubectl apply -f argocd-application.yaml
 # Sprawdź status
 kubectl get applications -n argocd
 kubectl describe application website-db-stack -n argocd
+
+# Zobacz logi sync
+kubectl logs -n argocd -l app.kubernetes.io/name=argocd-application-controller
+\`\`\`
+
+### 5. Debug jeśli są problemy
+\`\`\`bash
+# Sprawdź czy repo jest dostępne dla ArgoCD
+argocd repo list
+
+# Dodaj repo jeśli nie ma
+argocd repo add ${REPO_URL}
+
+# Sprawdź czy manifesty są poprawne
+kubectl kustomize manifests/base | kubectl apply --dry-run=client -f -
 \`\`\`
 
 ## ⚠️ Typowe problemy
 
-**Problem: Kyverno odrzuca Deployment/StatefulSet**
-**Rozwiązanie**: Upewnij się, że wszystkie zasoby mają etykiety:
-\`\`\`yaml
-metadata:
-  labels:
-    app: nazwa-aplikacji
-    environment: development
+### "app path does not exist"
+**Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna.
+
+**Rozwiązanie**:
+1. Upewnij się że zrobiłeś \`git push\` po generowaniu
+2. Sprawdź czy folder \`manifests/base/\` istnieje w repo na GitHub
+3. Sprawdź czy plik \`manifests/base/kustomization.yaml\` jest dostępny
+
+### "Unable to generate manifests"
+**Przyczyna**: Błąd w kustomization.yaml lub brakujący plik.
+
+**Rozwiązanie**:
+\`\`\`bash
+# Test lokalny
+kubectl kustomize manifests/base
+
+# Sprawdź czy wszystkie pliki istnieją
+ls -la manifests/base/
+\`\`\`
+
+### ArgoCD nie widzi repo
+**Rozwiązanie**:
+\`\`\`bash
+# Dodaj credentials dla prywatnego repo
+kubectl create secret generic repo-creds \\
+  --from-literal=url=${REPO_URL} \\
+  --from-literal=password=YOUR_GITHUB_TOKEN \\
+  --from-literal=username=YOUR_GITHUB_USERNAME \\
+  -n argocd
 \`\`\`
 
 ## 🌐 Dostęp
@@ -1663,7 +1772,7 @@ metadata:
 ## 📦 Namespace
 \`${NAMESPACE}\`
 
-## 🏗️ Architektura
+## 🏗️ Architektura (Zintegrowana - Kafka Kraft)
 
 \`\`\`
 ┌─────────────────────────────────────────────────────┐
@@ -1679,13 +1788,15 @@ metadata:
 │  │   FastAPI    │  │  PostgreSQL  │               │
 │  │   Website    │──│   Database   │               │
 │  └──────────────┘  └──────────────┘               │
-│         │                                           │
+│         │ Tracing (Tempo)                           │
 │         ├────────────┬─────────────┬───────────────┤
 │         ▼            ▼             ▼               ▼
 │  ┌──────────┐  ┌─────────┐  ┌─────────┐    ┌──────────┐
 │  │  Redis   │  │  Kafka  │  │  Vault  │    │ pgAdmin  │
-│  └──────────┘  │ (KRaft) │  └─────────┘    └──────────┘
-│                └─────────┘                     │
+│  └──────────┘  └─────────┘  └─────────┘    └──────────┘
+│                  ^  (Kraft)                                  │
+│                  │ Wiadomości (Survey Topic)          │
+│                  │                                  │
 │  ┌─────────────────────────────────────────────┐  │
 │  │         Observability Stack                 │  │
 │  │  ┌──────────┐ ┌─────────┐ ┌──────────┐    │  │
@@ -1709,12 +1820,12 @@ metadata:
 \`\`\`
 .
 ├── app/
-│   ├── main.py              # FastAPI aplikacja
-│   ├── requirements.txt     # Zależności Python
+│   ├── main.py              # FastAPI (Producent Kafka, OpenTelemetry Tracing)
+│   ├── requirements.txt     # Zależności Python (+kafka-python, +opentelemetry)
 │   └── templates/
 │       └── index.html       # Frontend
 ├── manifests/
-│   └── base/               # Manifesty Kubernetes
+│   └── base/               # Manifesty Kubernetes (Deployment ma Env Vars dla Kafka/Tempo)
 │       ├── *.yaml
 │       └── kustomization.yaml
 ├── .github/
@@ -1747,7 +1858,7 @@ generate_all(){
   generate_pgadmin
   generate_vault
   generate_redis
-  generate_kafka # Poprawiono na KRaft
+  generate_kafka
   generate_prometheus
   generate_grafana
   generate_loki
@@ -1760,44 +1871,59 @@ generate_all(){
   generate_readme
   
   echo ""
-  info "✅ WSZYSTKO GOTOWE!"
+  info "✅ WSZYSTKO GOTOWE! (Zintegrowano Kafka Kraft i Tracing dla Tempo)"
   echo ""
   echo "📦 Wygenerowano:"
-  echo "   ✓ FastAPI aplikacja w app/"
+  echo "   ✓ FastAPI aplikacja w app/ (Producent Kafka, Tracing OTLP)"
   echo "   ✓ Dockerfile"
   echo "   ✓ GitHub Actions workflow"
-  echo "   ✓ Kubernetes manifesty w manifests/base/ (w tym Kafka KRaft)"
+  echo "   ✓ Kubernetes manifesty w manifests/base/"
   echo "   ✓ argocd-application.yaml (standalone w root)"
-  echo "   ✓ README.md (Zaktualizowano)"
+  echo "   ✓ README.md"
   echo ""
-  echo "🎯 Komponenty:"
+  echo "🎯 Komponenty (Zintegrowane):"
   echo "   ✓ FastAPI + PostgreSQL + pgAdmin"
   echo "   ✓ Vault (secrets management)"
   echo "   ✓ Redis (cache)"
-  echo "   ✓ Kafka KRaft (messaging - tryb bez Zookeepera)"
+  echo "   ✓ Kafka (Kraft Mode) (messaging, cel: survey-topic)"
   echo "   ✓ Prometheus + Grafana (monitoring)"
   echo "   ✓ Loki + Promtail (logging)"
-  echo "   ✓ Tempo (tracing)"
+  echo "   ✓ Tempo (tracing, odbiera ślady z FastAPI na porcie 4317)"
   echo "   ✓ ArgoCD (GitOps)"
   echo "   ✓ Kyverno (policies)"
   echo ""
   echo "🚀 Następne kroki:"
   echo ""
-  echo "1️⃣ Uruchom skrypt do wygenerowania plików:"
-  echo "   ./unified-deployment.sh generate"
-  echo ""
-  echo "2️⃣ Inicjalizacja Git i push (aktualizacja do KRaft):"
+  echo "1️⃣ Inicjalizacja Git i push:"
   echo "   git init"
   echo "   git add ."
-  echo "   git commit -m 'Initial commit - unified stack with Kafka KRaft fix'"
+  echo "   git commit -m 'Initial commit - unified stack with Kafka (Kraft) and Tempo tracing'"
   echo "   git branch -M main"
   echo "   git remote add origin ${REPO_URL}"
   echo "   git push -u origin main"
   echo ""
-  echo "3️⃣ Deploy ArgoCD Application (po push do repo):"
+  echo "2️⃣ Weryfikacja struktury:"
+  echo "   tree manifests/"
+  echo ""
+  echo "3️⃣ Test lokalny Kustomize:"
+  echo "   kubectl kustomize manifests/base"
+  echo ""
+  echo "4️⃣ Deploy ArgoCD Application (po push do repo):"
   echo "   kubectl apply -f argocd-application.yaml"
   echo ""
-  echo "⚠️ WAŻNE: Wprowadzono też poprawkę do polityki Kyverno i dodano etykiety (np. \`environment: development\`) do wszystkich Deploymentów/StatefulSetów, aby spełnić nową politykę."
+  echo "5️⃣ Sprawdź status w ArgoCD:"
+  echo "   kubectl get applications -n argocd"
+  echo "   kubectl describe application website-db-stack -n argocd"
+  echo ""
+  echo "⚠️  WAŻNE: Upewnij się że:"
+  echo "   ✓ Repozytorium ${REPO_URL} istnieje"
+  echo "   ✓ ArgoCD jest zainstalowany (kubectl get ns argocd)"
+  echo "   ✓ Folder manifests/base/ zawiera wszystkie pliki"
+  echo ""
+  echo "🌐 Dostęp:"
+  echo "   App: http://${PROJECT}.local"
+  echo "   pgAdmin: http://pgadmin.${PROJECT}.local"
+  echo "   Grafana: http://grafana.${PROJECT}.local"
   echo ""
 }
 

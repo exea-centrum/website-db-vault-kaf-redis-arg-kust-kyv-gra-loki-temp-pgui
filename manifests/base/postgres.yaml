@@ -3,8 +3,6 @@ kind: StatefulSet
 metadata:
   name: postgres
   namespace: davtrowebdbvault
-  labels:
-    app: postgres # Dodano etykietę dla Kyverno
 spec:
   serviceName: postgres
   replicas: 1
@@ -15,7 +13,6 @@ spec:
     metadata:
       labels:
         app: postgres
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: postgres

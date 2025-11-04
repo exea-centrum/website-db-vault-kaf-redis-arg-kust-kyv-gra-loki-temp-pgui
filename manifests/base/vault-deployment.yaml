@@ -3,8 +3,6 @@ kind: StatefulSet
 metadata:
   name: vault
   namespace: davtrowebdbvault
-  labels:
-    app: vault # Dodano etykietę dla Kyverno
 spec:
   serviceName: vault
   replicas: 1
@@ -15,7 +13,6 @@ spec:
     metadata:
       labels:
         app: vault
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: vault

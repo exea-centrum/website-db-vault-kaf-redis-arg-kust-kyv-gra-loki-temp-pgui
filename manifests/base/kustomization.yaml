@@ -12,8 +12,7 @@ resources:
   - postgres.yaml
   - pgadmin.yaml
   - redis.yaml
-  - kafka-config-kraft.yaml # NOWA konfiguracja KRaft
-  - kafka-kraft.yaml        # NOWY manifest KRaft
+  - kafka.yaml
   - deployment.yaml
   - service.yaml
   - ingress.yaml

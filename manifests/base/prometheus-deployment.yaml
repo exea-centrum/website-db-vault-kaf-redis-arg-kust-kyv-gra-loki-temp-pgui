@@ -3,8 +3,6 @@ kind: Deployment
 metadata:
   name: prometheus
   namespace: davtrowebdbvault
-  labels:
-    app: prometheus # Dodano etykietę dla Kyverno
 spec:
   replicas: 1
   selector:
@@ -14,7 +12,6 @@ spec:
     metadata:
       labels:
         app: prometheus
-        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: prometheus

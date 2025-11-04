@@ -11,10 +11,8 @@ spec:
       - resources:
           kinds:
           - Pod
-          - Deployment
-          - StatefulSet
     validate:
-      message: "Labels 'app' and 'environment' are required for all Pods, Deployments and StatefulSets."
+      message: "Labels 'app' and 'environment' are required."
       pattern:
         metadata:
           labels:

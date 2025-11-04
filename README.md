@@ -1,11 +1,11 @@
-# website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat - Unified GitOps Stack
+# website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat - Unified GitOps Stack (Zintegrowane Kafka i Tracing)
 
 🚀 **Kompleksowa aplikacja z pełnym stack'iem DevOps**
 
 ## 📋 Komponenty
 
 ### Aplikacja
-- **FastAPI** - Strona osobista z ankietą
+- **FastAPI** - Strona osobista z ankietą. **Wysyła wiadomości do Kafka i Tracing do Tempo.**
 - **PostgreSQL** - Baza danych
 - **pgAdmin** - Zarządzanie bazą danych
 
@@ -18,14 +18,14 @@
 - **Vault** - Zarządzanie sekretami
 
 ### Messaging & Cache
-- **Kafka (KRaft)** - Kolejka wiadomości (tryb bez Zookeepera)
+- **Kafka (Kraft Mode)** - Kolejka wiadomości bez Zookeepera. **Aplikacja FastAPI jest Producentem.**
 - **Redis** - Cache i kolejki
 
-### Monitoring & Observability
+### Monitoring & Observability (Pełny Trójkąt)
 - **Prometheus** - Metryki
-- **Grafana** - Wizualizacja
-- **Loki** - Logi
-- **Tempo** - Distributed tracing
+- **Grafana** - Wizualizacja (Metryki, Logi, Ślady)
+- **Loki** - Logi (Współpracuje z Promtail)
+- **Tempo** - Distributed tracing. **Zbiera ślady OpenTelemetry z FastAPI.**
 - **Promtail** - Agregacja logów
 
 ## 🚀 Użycie
@@ -40,7 +40,7 @@ chmod +x unified-deployment.sh
 ```bash
 git init
 git add .
-git commit -m "Initial commit - unified stack with Kafka KRaft"
+git commit -m "Initial commit - unified stack with Kafka (Kraft) and Tempo tracing"
 git branch -M main
 git remote add origin https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git
 git push -u origin main
@@ -66,17 +66,54 @@ kubectl apply -f argocd-application.yaml
 # Sprawdź status
 kubectl get applications -n argocd
 kubectl describe application website-db-stack -n argocd
+
+# Zobacz logi sync
+kubectl logs -n argocd -l app.kubernetes.io/name=argocd-application-controller
+```
+
+### 5. Debug jeśli są problemy
+```bash
+# Sprawdź czy repo jest dostępne dla ArgoCD
+argocd repo list
+
+# Dodaj repo jeśli nie ma
+argocd repo add https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git
+
+# Sprawdź czy manifesty są poprawne
+kubectl kustomize manifests/base | kubectl apply --dry-run=client -f -
 ```
 
 ## ⚠️ Typowe problemy
 
-**Problem: Kyverno odrzuca Deployment/StatefulSet**
-**Rozwiązanie**: Upewnij się, że wszystkie zasoby mają etykiety:
-```yaml
-metadata:
-  labels:
-    app: nazwa-aplikacji
-    environment: development
+### "app path does not exist"
+**Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna.
+
+**Rozwiązanie**:
+1. Upewnij się że zrobiłeś `git push` po generowaniu
+2. Sprawdź czy folder `manifests/base/` istnieje w repo na GitHub
+3. Sprawdź czy plik `manifests/base/kustomization.yaml` jest dostępny
+
+### "Unable to generate manifests"
+**Przyczyna**: Błąd w kustomization.yaml lub brakujący plik.
+
+**Rozwiązanie**:
+```bash
+# Test lokalny
+kubectl kustomize manifests/base
+
+# Sprawdź czy wszystkie pliki istnieją
+ls -la manifests/base/
+```
+
+### ArgoCD nie widzi repo
+**Rozwiązanie**:
+```bash
+# Dodaj credentials dla prywatnego repo
+kubectl create secret generic repo-creds \
+  --from-literal=url=https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git \
+  --from-literal=password=YOUR_GITHUB_TOKEN \
+  --from-literal=username=YOUR_GITHUB_USERNAME \
+  -n argocd
 ```
 
 ## 🌐 Dostęp
@@ -101,7 +138,7 @@ metadata:
 ## 📦 Namespace
 `davtrowebdbvault`
 
-## 🏗️ Architektura
+## 🏗️ Architektura (Zintegrowana - Kafka Kraft)
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -117,13 +154,15 @@ metadata:
 │  │   FastAPI    │  │  PostgreSQL  │               │
 │  │   Website    │──│   Database   │               │
 │  └──────────────┘  └──────────────┘               │
-│         │                                           │
+│         │ Tracing (Tempo)                           │
 │         ├────────────┬─────────────┬───────────────┤
 │         ▼            ▼             ▼               ▼
 │  ┌──────────┐  ┌─────────┐  ┌─────────┐    ┌──────────┐
 │  │  Redis   │  │  Kafka  │  │  Vault  │    │ pgAdmin  │
-│  └──────────┘  │ (KRaft) │  └─────────┘    └──────────┘
-│                └─────────┘                     │
+│  └──────────┘  └─────────┘  └─────────┘    └──────────┘
+│                  ^  (Kraft)                                  │
+│                  │ Wiadomości (Survey Topic)          │
+│                  │                                  │
 │  ┌─────────────────────────────────────────────┐  │
 │  │         Observability Stack                 │  │
 │  │  ┌──────────┐ ┌─────────┐ ┌──────────┐    │  │
@@ -147,12 +186,12 @@ metadata:
 ```
 .
 ├── app/
-│   ├── main.py              # FastAPI aplikacja
-│   ├── requirements.txt     # Zależności Python
+│   ├── main.py              # FastAPI (Producent Kafka, OpenTelemetry Tracing)
+│   ├── requirements.txt     # Zależności Python (+kafka-python, +opentelemetry)
 │   └── templates/
 │       └── index.html       # Frontend
 ├── manifests/
-│   └── base/               # Manifesty Kubernetes
+│   └── base/               # Manifesty Kubernetes (Deployment ma Env Vars dla Kafka/Tempo)
 │       ├── *.yaml
 │       └── kustomization.yaml
 ├── .github/
