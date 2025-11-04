@@ -18,7 +18,7 @@
 - **Vault** - Zarządzanie sekretami
 
 ### Messaging & Cache
-- **Kafka (KRaft)** - Kolejka wiadomości (tryb all-in-one bez ZooKeepera)
+- **Kafka + Zookeeper** - Kolejka wiadomości
 - **Redis** - Cache i kolejki
 
 ### Monitoring & Observability
@@ -89,9 +89,9 @@ kubectl kustomize manifests/base | kubectl apply --dry-run=client -f -
 **Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna.
 
 **Rozwiązanie**:
-1. Upewnij się że zrobiłeś `git push` po generowaniu
-2. Sprawdź czy folder `manifests/base/` istnieje w repo na GitHub
-3. Sprawdź czy plik `manifests/base/kustomization.yaml` jest dostępny
+1. Upewnij się że zrobiłeś  po generowaniu
+2. Sprawdź czy folder  istnieje w repo na GitHub
+3. Sprawdź czy plik  jest dostępny
 
 ### "Unable to generate manifests"
 **Przyczyna**: Błąd w kustomization.yaml lub brakujący plik.
@@ -109,7 +109,11 @@ ls -la manifests/base/
 **Rozwiązanie**:
 ```bash
 # Dodaj credentials dla prywatnego repo
-kubectl create secret generic repo-creds   --from-literal=url=https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git   --from-literal=password=YOUR_GITHUB_TOKEN   --from-literal=username=YOUR_GITHUB_USERNAME   -n argocd
+kubectl create secret generic repo-creds \
+  --from-literal=url=https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git \
+  --from-literal=password=YOUR_GITHUB_TOKEN \
+  --from-literal=username=YOUR_GITHUB_USERNAME \
+  -n argocd
 ```
 
 ## 🌐 Dostęp

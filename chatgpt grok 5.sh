@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Unified deployment script - combines website app with full GitOps stack
-# Generates FastAPI app + Kubernetes manifests with ArgoCD, Vault, Postgres, Redis, Kafka(KRaft), Grafana, Prometheus, Loki, Tempo, Kyverno
+# Generates FastAPI app + Kubernetes manifests with ArgoCD, Vault, Postgres, Redis, Kafka, Grafana, Prometheus, Loki, Tempo, Kyverno
 
 PROJECT="website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat"
 NAMESPACE="davtrowebdbvault"
@@ -899,19 +899,52 @@ R
 }
 
 # ==============================
-# KAFKA (KRaft)
+# KAFKA
 # ==============================
 generate_kafka(){
-  info "Generowanie Kafka (KRaft)..."
-  # Generowanie unikalnego ID dla klastra Kafka (KRaft cluster ID)
-  KAFKA_CLUSTER_ID=$(od -tx8 -N16 /dev/urandom | head -c 32 | tr -d '[:space:]')
-  
-  cat > "${BASE_DIR}/kafka.yaml" <<KAF
+  info "Generowanie Kafka + Zookeeper..."
+  cat > "${BASE_DIR}/kafka.yaml" <<'KAF'
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zookeeper
+  namespace: davtrowebdbvault
+spec:
+  serviceName: zookeeper
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      containers:
+      - name: zookeeper
+        image: bitnami/zookeeper:3.9.2
+        ports:
+        - containerPort: 2181
+        env:
+        - name: ALLOW_ANONYMOUS_LOGIN
+          value: "yes"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper
+  namespace: davtrowebdbvault
+spec:
+  ports:
+  - port: 2181
+  selector:
+    app: zookeeper
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: kafka
-  namespace: ${NAMESPACE}
+  namespace: davtrowebdbvault
 spec:
   serviceName: kafka
   replicas: 1
@@ -925,28 +958,10 @@ spec:
     spec:
       containers:
       - name: kafka
-        image: bitnami/kafka:3.8.0 # Wymagana wersja >= 2.8.0 dla KRaft
+        image: bitnami/kafka:3.8.0
         env:
-        - name: KAFKA_CFG_NODE_ID
-          value: "1" # Ustawienie unikalnego ID dla każdego brokera/kontrolera
-        - name: KAFKA_CFG_PROCESS_ROLES
-          value: "broker,controller" # All-in-one: broker i kontroler
-        - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
-          value: "1@kafka:9093" # Wskazanie na samego siebie
-        - name: KAFKA_CFG_LISTENERS
-          value: "PLAINTEXT://:9092,CONTROLLER://:9093"
-        - name: KAFKA_CFG_ADVERTISED_LISTENERS
-          value: "PLAINTEXT://kafka:9092"
-        - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
-          value: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
-        - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
-          value: "PLAINTEXT"
-        - name: KAFKA_CFG_CONTROLLER_LISTENER_NAME
-          value: "CONTROLLER"
-        - name: KAFKA_CFG_LOG_DIRS
-          value: "/bitnami/kafka/data/kraft-combined-logs"
-        - name: KAFKA_KRAFT_CLUSTER_ID
-          value: "${KAFKA_CLUSTER_ID}" # Unikalny ID klastra (wygenerowany)
+        - name: KAFKA_CFG_ZOOKEEPER_CONNECT
+          value: zookeeper:2181
         - name: ALLOW_PLAINTEXT_LISTENER
           value: "yes"
         ports:
@@ -967,13 +982,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kafka
-  namespace: ${NAMESPACE}
+  namespace: davtrowebdbvault
 spec:
   ports:
   - port: 9092
-    targetPort: 9092
-  - port: 9093 # Port kontrolera KRaft
-    targetPort: 9093
   selector:
     app: kafka
 KAF
@@ -1492,7 +1504,7 @@ K
 }
 
 # ==============================
-# README (Zaktualizowana: Usunięto ZooKeeper, dodano KRaft)
+# README
 # ==============================
 generate_readme(){
   info "Generowanie README.md..."
@@ -1517,7 +1529,7 @@ generate_readme(){
 - **Vault** - Zarządzanie sekretami
 
 ### Messaging & Cache
-- **Kafka (KRaft)** - Kolejka wiadomości (tryb all-in-one bez ZooKeepera)
+- **Kafka + Zookeeper** - Kolejka wiadomości
 - **Redis** - Cache i kolejki
 
 ### Monitoring & Observability
@@ -1588,9 +1600,9 @@ kubectl kustomize manifests/base | kubectl apply --dry-run=client -f -
 **Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna.
 
 **Rozwiązanie**:
-1. Upewnij się że zrobiłeś \`git push\` po generowaniu
-2. Sprawdź czy folder \`manifests/base/\` istnieje w repo na GitHub
-3. Sprawdź czy plik \`manifests/base/kustomization.yaml\` jest dostępny
+1. Upewnij się że zrobiłeś `git push` po generowaniu
+2. Sprawdź czy folder `manifests/base/` istnieje w repo na GitHub
+3. Sprawdź czy plik `manifests/base/kustomization.yaml` jest dostępny
 
 ### "Unable to generate manifests"
 **Przyczyna**: Błąd w kustomization.yaml lub brakujący plik.
@@ -1608,10 +1620,10 @@ ls -la manifests/base/
 **Rozwiązanie**:
 \`\`\`bash
 # Dodaj credentials dla prywatnego repo
-kubectl create secret generic repo-creds \
-  --from-literal=url=${REPO_URL} \
-  --from-literal=password=YOUR_GITHUB_TOKEN \
-  --from-literal=username=YOUR_GITHUB_USERNAME \
+kubectl create secret generic repo-creds \\
+  --from-literal=url=${REPO_URL} \\
+  --from-literal=password=YOUR_GITHUB_TOKEN \\
+  --from-literal=username=YOUR_GITHUB_USERNAME \\
   -n argocd
 \`\`\`
 
@@ -1708,7 +1720,7 @@ MD
 # GŁÓWNA FUNKCJA
 # ==============================
 generate_all(){
-  info "🚀 Rozpoczynam generowanie unified stack (Kafka w trybie KRaft)..."
+  info "🚀 Rozpoczynam generowanie unified stack..."
   echo ""
   
   generate_structure
@@ -1721,7 +1733,7 @@ generate_all(){
   generate_pgadmin
   generate_vault
   generate_redis
-  generate_kafka # ZMODYFIKOWANA
+  generate_kafka
   generate_prometheus
   generate_grafana
   generate_loki
@@ -1731,7 +1743,7 @@ generate_all(){
   generate_argocd_app
   generate_argocd_standalone
   generate_kustomization
-  generate_readme # ZMODYFIKOWANA
+  generate_readme
   
   echo ""
   info "✅ WSZYSTKO GOTOWE!"
@@ -1744,11 +1756,11 @@ generate_all(){
   echo "   ✓ argocd-application.yaml (standalone w root)"
   echo "   ✓ README.md"
   echo ""
-  echo "🎯 Komponenty (Kafka w trybie KRaft, usunięto Zookeeper):"
+  echo "🎯 Komponenty:"
   echo "   ✓ FastAPI + PostgreSQL + pgAdmin"
   echo "   ✓ Vault (secrets management)"
   echo "   ✓ Redis (cache)"
-  echo "   ✓ Kafka (KRaft) (messaging)"
+  echo "   ✓ Kafka + Zookeeper (messaging)"
   echo "   ✓ Prometheus + Grafana (monitoring)"
   echo "   ✓ Loki + Promtail (logging)"
   echo "   ✓ Tempo (tracing)"
