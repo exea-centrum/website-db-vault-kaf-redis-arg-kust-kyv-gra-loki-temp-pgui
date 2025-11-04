@@ -28,10 +28,12 @@ resources:
   - tempo-deployment.yaml
   - kyverno-policy.yaml
 
-commonLabels:
-  app: website-db-stack
-  environment: development
-  managed-by: argocd
+# Poprawiono: 'commonLabels' jest przestarzałe, używamy 'labels'
+labels:
+- pairs:
+    app: website-db-stack
+    environment: development
+    managed-by: argocd
 
 images:
   - name: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat

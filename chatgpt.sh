@@ -1005,21 +1005,52 @@ R
 }
 
 # ==============================
-# KAFKA (KRAFT MODE)
+# KAFKA
 # ==============================
 generate_kafka(){
-  info "Generowanie Kafka (Kraft Mode)..."
-  # Stały Cluster ID dla uproszczenia w konfiguracji single-node
-  KRAFT_CLUSTER_ID="2gXyE8fQfA39k-h-t83S4Q" 
-  
-  cat > "${BASE_DIR}/kafka.yaml" <<KAF
-# Usunięto Zookeeper - Używamy Kraft (Kafka Raft)
-
+  info "Generowanie Kafka + Zookeeper..."
+  cat > "${BASE_DIR}/kafka.yaml" <<'KAF'
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zookeeper
+  namespace: davtrowebdbvault
+spec:
+  serviceName: zookeeper
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      containers:
+      - name: zookeeper
+        image: bitnami/zookeeper:3.9.2
+        ports:
+        - containerPort: 2181
+        env:
+        - name: ALLOW_ANONYMOUS_LOGIN
+          value: "yes"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper
+  namespace: davtrowebdbvault
+spec:
+  ports:
+  - port: 2181
+  selector:
+    app: zookeeper
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: kafka
-  namespace: ${NAMESPACE} 
+  namespace: davtrowebdbvault
 spec:
   serviceName: kafka
   replicas: 1
@@ -1031,63 +1062,19 @@ spec:
       labels:
         app: kafka
     spec:
-      initContainers:
-      - name: kafka-storage-format
-        image: bitnami/kafka:3.8.0
-        command: ['sh', '-c', 'kafka-storage format --cluster-id ${KRAFT_CLUSTER_ID} -t ${KRAFT_CLUSTER_ID} -c /opt/bitnami/kafka/config/server.properties -R']
-        env:
-        # Używamy minimalnej konfiguracji do formatowania
-        - name: KAFKA_CFG_NODE_ID
-          value: "1"
-        - name: KAFKA_CFG_PROCESS_ROLES
-          value: "controller,broker"
-        - name: KAFKA_CFG_LISTENERS
-          value: "PLAINTEXT://:9092,CONTROLLER://:9093"
-        - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
-          value: "1@kafka:9093"
-        - name: KAFKA_CFG_LOG_DIRS
-          value: /bitnami/kafka/data
-        volumeMounts:
-        - name: kafka-data
-          mountPath: /bitnami/kafka
       containers:
       - name: kafka
         image: bitnami/kafka:3.8.0
         env:
-        # KONFIGURACJA KRAFT
-        - name: KAFKA_CFG_NODE_ID
-          value: "1"
-        - name: KAFKA_CFG_PROCESS_ROLES
-          value: "controller,broker"
-        - name: KAFKA_CFG_LISTENERS
-          value: "PLAINTEXT://:9092,CONTROLLER://:9093"
-        - name: KAFKA_CFG_ADVERTISED_LISTENERS
-          value: "PLAINTEXT://kafka:9092"
-        - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
-          value: "1@kafka:9093"
-        - name: KAFKA_KRAFT_CLUSTER_ID
-          value: "${KRAFT_CLUSTER_ID}"
-        - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
-          value: "CONTROLLER"
-        # Ustawienia pamięci
-        - name: KAFKA_HEAP_OPTS
-          value: "-Xmx512M -Xms512M"
-        # Pozostałe
+        - name: KAFKA_CFG_ZOOKEEPER_CONNECT
+          value: zookeeper:2181
         - name: ALLOW_PLAINTEXT_LISTENER
           value: "yes"
         ports:
-        - containerPort: 9092 # Broker
-        - containerPort: 9093 # Controller
+        - containerPort: 9092
         volumeMounts:
         - name: kafka-data
           mountPath: /bitnami/kafka
-        resources:
-          requests:
-            memory: "768Mi"
-            cpu: "300m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
   volumeClaimTemplates:
   - metadata:
       name: kafka-data
@@ -1101,15 +1088,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kafka
-  namespace: ${NAMESPACE}
+  namespace: davtrowebdbvault
 spec:
   ports:
-  - name: broker
-    port: 9092
-    targetPort: 9092
-  - name: controller
-    port: 9093
-    targetPort: 9093
+  - port: 9092
   selector:
     app: kafka
 KAF
@@ -1317,6 +1299,17 @@ spec:
       - name: config
         configMap:
           name: loki-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: ${NAMESPACE}
+spec:
+  ports:
+  - port: 3100
+  selector:
+    app: loki
 LKD
 }
 
@@ -1615,10 +1608,12 @@ resources:
   - tempo-deployment.yaml
   - kyverno-policy.yaml
 
-commonLabels:
-  app: website-db-stack
-  environment: development
-  managed-by: argocd
+# Poprawiono: 'commonLabels' jest przestarzałe, używamy 'labels'
+labels:
+- pairs:
+    app: website-db-stack
+    environment: development
+    managed-by: argocd
 
 images:
   - name: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
@@ -1652,7 +1647,7 @@ generate_readme(){
 - **Vault** - Zarządzanie sekretami
 
 ### Messaging & Cache
-- **Kafka (Kraft Mode)** - Kolejka wiadomości bez Zookeepera. **Aplikacja FastAPI jest Producentem.**
+- **Kafka + Zookeeper** - Kolejka wiadomości. **Aplikacja FastAPI jest Producentem.**
 - **Redis** - Cache i kolejki
 
 ### Monitoring & Observability (Pełny Trójkąt)
@@ -1670,11 +1665,12 @@ chmod +x unified-deployment.sh
 ./unified-deployment.sh generate
 \`\`\`
 
-### 2. Inicjalizacja i push do GitHub
+### 2. Inicjalizacja i push do GitHub (KRYTYCZNE dla ArgoCD)
 \`\`\`bash
+# Upewnij się, że wszystkie pliki, w tym kafka.yaml, są dodane.
 git init
 git add .
-git commit -m "Initial commit - unified stack with Kafka (Kraft) and Tempo tracing"
+git commit -m "Initial commit - unified stack with Kafka and Tempo tracing (Fixed Kustomization labels)"
 git branch -M main
 git remote add origin ${REPO_URL}
 git push -u origin main
@@ -1719,8 +1715,8 @@ kubectl kustomize manifests/base | kubectl apply --dry-run=client -f -
 
 ## ⚠️ Typowe problemy
 
-### "app path does not exist"
-**Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna.
+### "app path does not exist" lub "no such file or directory"
+**Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna. **Upewnij się, że wykonałeś KROK 2.**
 
 **Rozwiązanie**:
 1. Upewnij się że zrobiłeś \`git push\` po generowaniu
@@ -1772,7 +1768,7 @@ kubectl create secret generic repo-creds \\
 ## 📦 Namespace
 \`${NAMESPACE}\`
 
-## 🏗️ Architektura (Zintegrowana - Kafka Kraft)
+## 🏗️ Architektura (Zintegrowana)
 
 \`\`\`
 ┌─────────────────────────────────────────────────────┐
@@ -1794,7 +1790,7 @@ kubectl create secret generic repo-creds \\
 │  ┌──────────┐  ┌─────────┐  ┌─────────┐    ┌──────────┐
 │  │  Redis   │  │  Kafka  │  │  Vault  │    │ pgAdmin  │
 │  └──────────┘  └─────────┘  └─────────┘    └──────────┘
-│                  ^  (Kraft)                                  │
+│                  ^                                  │
 │                  │ Wiadomości (Survey Topic)          │
 │                  │                                  │
 │  ┌─────────────────────────────────────────────┐  │
@@ -1809,7 +1805,7 @@ kubectl create secret generic repo-creds \\
 │                                                     │
 │  ┌─────────────────────────────────────────────┐  │
 │  │              Kyverno Policies               │  │
-│  │         (Policy Enforcement)                │  │
+│  │         (Policy Enforcement)                │  |
 │  └─────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────┘
 \`\`\`
@@ -1827,7 +1823,7 @@ kubectl create secret generic repo-creds \\
 ├── manifests/
 │   └── base/               # Manifesty Kubernetes (Deployment ma Env Vars dla Kafka/Tempo)
 │       ├── *.yaml
-│       └── kustomization.yaml
+│       └── kustomization.yaml # POPRAWIONY: Używa 'labels' zamiast 'commonLabels'
 ├── .github/
 │   └── workflows/
 │       └── ci.yml          # GitHub Actions
@@ -1871,7 +1867,7 @@ generate_all(){
   generate_readme
   
   echo ""
-  info "✅ WSZYSTKO GOTOWE! (Zintegrowano Kafka Kraft i Tracing dla Tempo)"
+  info "✅ WSZYSTKO GOTOWE! (Zintegrowano Kafka i Tracing dla Tempo)"
   echo ""
   echo "📦 Wygenerowano:"
   echo "   ✓ FastAPI aplikacja w app/ (Producent Kafka, Tracing OTLP)"
@@ -1885,19 +1881,19 @@ generate_all(){
   echo "   ✓ FastAPI + PostgreSQL + pgAdmin"
   echo "   ✓ Vault (secrets management)"
   echo "   ✓ Redis (cache)"
-  echo "   ✓ Kafka (Kraft Mode) (messaging, cel: survey-topic)"
+  echo "   ✓ Kafka + Zookeeper (messaging, cel: survey-topic)"
   echo "   ✓ Prometheus + Grafana (monitoring)"
   echo "   ✓ Loki + Promtail (logging)"
   echo "   ✓ Tempo (tracing, odbiera ślady z FastAPI na porcie 4317)"
   echo "   ✓ ArgoCD (GitOps)"
   echo "   ✓ Kyverno (policies)"
   echo ""
-  echo "🚀 Następne kroki:"
+  echo "🚀 Następne kroki (Powtórz te kroki, aby naprawić błąd ArgoCD!):"
   echo ""
   echo "1️⃣ Inicjalizacja Git i push:"
   echo "   git init"
   echo "   git add ."
-  echo "   git commit -m 'Initial commit - unified stack with Kafka (Kraft) and Tempo tracing'"
+  echo "   git commit -m 'Initial commit - unified stack with Kafka and Tempo tracing (Fixed Kustomization labels)'"
   echo "   git branch -M main"
   echo "   git remote add origin ${REPO_URL}"
   echo "   git push -u origin main"

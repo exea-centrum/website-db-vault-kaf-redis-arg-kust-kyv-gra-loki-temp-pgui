@@ -18,7 +18,7 @@
 - **Vault** - Zarządzanie sekretami
 
 ### Messaging & Cache
-- **Kafka (Kraft Mode)** - Kolejka wiadomości bez Zookeepera. **Aplikacja FastAPI jest Producentem.**
+- **Kafka + Zookeeper** - Kolejka wiadomości. **Aplikacja FastAPI jest Producentem.**
 - **Redis** - Cache i kolejki
 
 ### Monitoring & Observability (Pełny Trójkąt)
@@ -36,11 +36,12 @@ chmod +x unified-deployment.sh
 ./unified-deployment.sh generate
 ```
 
-### 2. Inicjalizacja i push do GitHub
+### 2. Inicjalizacja i push do GitHub (KRYTYCZNE dla ArgoCD)
 ```bash
+# Upewnij się, że wszystkie pliki, w tym kafka.yaml, są dodane.
 git init
 git add .
-git commit -m "Initial commit - unified stack with Kafka (Kraft) and Tempo tracing"
+git commit -m "Initial commit - unified stack with Kafka and Tempo tracing (Fixed Kustomization labels)"
 git branch -M main
 git remote add origin https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git
 git push -u origin main
@@ -85,8 +86,8 @@ kubectl kustomize manifests/base | kubectl apply --dry-run=client -f -
 
 ## ⚠️ Typowe problemy
 
-### "app path does not exist"
-**Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna.
+### "app path does not exist" lub "no such file or directory"
+**Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna. **Upewnij się, że wykonałeś KROK 2.**
 
 **Rozwiązanie**:
 1. Upewnij się że zrobiłeś `git push` po generowaniu
@@ -138,7 +139,7 @@ kubectl create secret generic repo-creds \
 ## 📦 Namespace
 `davtrowebdbvault`
 
-## 🏗️ Architektura (Zintegrowana - Kafka Kraft)
+## 🏗️ Architektura (Zintegrowana)
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -160,7 +161,7 @@ kubectl create secret generic repo-creds \
 │  ┌──────────┐  ┌─────────┐  ┌─────────┐    ┌──────────┐
 │  │  Redis   │  │  Kafka  │  │  Vault  │    │ pgAdmin  │
 │  └──────────┘  └─────────┘  └─────────┘    └──────────┘
-│                  ^  (Kraft)                                  │
+│                  ^                                  │
 │                  │ Wiadomości (Survey Topic)          │
 │                  │                                  │
 │  ┌─────────────────────────────────────────────┐  │
@@ -175,7 +176,7 @@ kubectl create secret generic repo-creds \
 │                                                     │
 │  ┌─────────────────────────────────────────────┐  │
 │  │              Kyverno Policies               │  │
-│  │         (Policy Enforcement)                │  │
+│  │         (Policy Enforcement)                │  |
 │  └─────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────┘
 ```
@@ -193,7 +194,7 @@ kubectl create secret generic repo-creds \
 ├── manifests/
 │   └── base/               # Manifesty Kubernetes (Deployment ma Env Vars dla Kafka/Tempo)
 │       ├── *.yaml
-│       └── kustomization.yaml
+│       └── kustomization.yaml # POPRAWIONY: Używa 'labels' zamiast 'commonLabels'
 ├── .github/
 │   └── workflows/
 │       └── ci.yml          # GitHub Actions
