@@ -12,10 +12,8 @@ resources:
   - postgres.yaml
   - pgadmin.yaml
   - redis.yaml
-  # Zaktualizowano dla KAFKA KRaft
-  - kafka-config.yaml
-  - kafka-deployment.yaml
-  # Koniec aktualizacji Kafka
+  - kafka-config-kraft.yaml # NOWA konfiguracja KRaft
+  - kafka-kraft.yaml        # NOWY manifest KRaft
   - deployment.yaml
   - service.yaml
   - ingress.yaml

@@ -10,22 +10,10 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import time
-import json
-
-# Wymagane importy dla Kafka
-from kafka import KafkaProducer
-
-# Wymagane importy dla OpenTelemetry
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-
 
 app = FastAPI(title="Dawid Trojanowski - Strona Osobista")
 templates = Jinja2Templates(directory="templates")
+# app.mount("/static", StaticFiles(directory="static"), name="static") # Zakomentowane, bo brak folderu static
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("fastapi_app")
 
@@ -39,55 +27,8 @@ app.add_middleware(
 )
 
 DB_CONN = os.getenv("DATABASE_URL", "dbname=appdb user=appuser password=apppass host=postgres")
-KAFKA_SERVER = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
-OTEL_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://tempo:4317")
-SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "website-app")
-
 
 Instrumentator().instrument(app).expose(app)
-
-# ========================================================
-# 1. KONFIGURACJA TRACINGU (OpenTelemetry dla Tempo)
-# ========================================================
-
-resource = Resource.create(attributes={
-    "service.name": SERVICE_NAME
-})
-
-trace.set_tracer_provider(
-    TracerProvider(resource=resource)
-)
-tracer = trace.get_tracer(__name__)
-
-# Konfiguracja eksportu do Tempo (OTLP over gRPC)
-otlp_exporter = OTLPSpanExporter(endpoint=OTEL_ENDPOINT)
-span_processor = BatchSpanProcessor(otlp_exporter)
-trace.get_tracer_provider().add_span_processor(span_processor)
-
-# Instrumentacja FastAPI (automatyczne ślady)
-FastAPIInstrumentor.instrument_app(app, tracer_provider=trace.get_tracer_provider())
-
-
-# ========================================================
-# 2. KONFIGURACJA KAFKA
-# ========================================================
-
-def get_kafka_producer():
-    """Inicjalizacja producenta Kafka."""
-    try:
-        producer = KafkaProducer(
-            bootstrap_servers=KAFKA_SERVER.split(','),
-            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-            api_version=(0, 10, 1) # Zgodność z nowszymi wersjami
-        )
-        logger.info(f"Kafka Producer initialized for {KAFKA_SERVER}")
-        return producer
-    except Exception as e:
-        logger.error(f"Failed to initialize Kafka Producer: {e}")
-        return None
-
-KAFKA_PRODUCER = get_kafka_producer()
-
 
 class SurveyResponse(BaseModel):
     question: str
@@ -161,27 +102,19 @@ def init_database():
 async def startup_event():
     init_database()
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    if KAFKA_PRODUCER:
-        KAFKA_PRODUCER.close()
-        logger.info("Kafka Producer closed.")
-
-
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     """Główna strona osobista"""
-    with tracer.start_as_current_span("db-log-visit"):
-        try:
-            conn = get_db_connection()
-            cur = conn.cursor()
-            cur.execute("INSERT INTO page_visits (page) VALUES ('home')")
-            conn.commit()
-            cur.close()
-            conn.close()
-        except Exception as e:
-            logger.error(f"Error logging page visit: {e}")
-        
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO page_visits (page) VALUES ('home')")
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error logging page visit: {e}")
+    
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/health")
@@ -201,7 +134,6 @@ async def health_check():
 @app.get("/api/survey/questions")
 async def get_survey_questions():
     """Pobiera listę pytań do ankiety"""
-    # ... (pytania ankiety bez zmian)
     questions = [
         {
             "id": 1,
@@ -238,48 +170,26 @@ async def get_survey_questions():
 
 @app.post("/api/survey/submit")
 async def submit_survey(response: SurveyResponse):
-    """Zapisuje odpowiedź z ankiety i wysyła do Kafka"""
-    
-    with tracer.start_as_current_span("save-to-postgres"):
-        try:
-            conn = get_db_connection()
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT INTO survey_responses (question, answer) VALUES (%s, %s)",
-                (response.question, response.answer)
-            )
-            conn.commit()
-            cur.close()
-            conn.close()
-            logger.info(f"Survey response saved to DB: {response.question} -> {response.answer}")
-        except Exception as e:
-            logger.error(f"Error saving survey response to DB: {e}")
-            raise HTTPException(status_code=500, detail="Błąd podczas zapisywania odpowiedzi w DB")
-
-    with tracer.start_as_current_span("send-to-kafka"):
-        if KAFKA_PRODUCER:
-            message = {
-                "question": response.question,
-                "answer": response.answer,
-                "timestamp": time.time()
-            }
-            try:
-                # Wysłanie wiadomości do topicu
-                KAFKA_PRODUCER.send('survey-topic', value=message)
-                logger.info(f"Message sent to Kafka topic 'survey-topic'")
-            except Exception as e:
-                logger.error(f"Error sending message to Kafka: {e}")
-                # Kontynuujemy pomimo błędu Kafka, bo zapis do DB się powiódł
-                pass
-        else:
-            logger.warning("Kafka Producer is not initialized. Skipping message send.")
-
-
-    return {"status": "success", "message": "Dziękujemy za wypełnienie ankiety! (Zapisano i wysłano do Kafka)"}
+    """Zapisuje odpowiedź z ankiety"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO survey_responses (question, answer) VALUES (%s, %s)",
+            (response.question, response.answer)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        logger.info(f"Survey response saved: {response.question} -> {response.answer}")
+        return {"status": "success", "message": "Dziękujemy za wypełnienie ankiety!"}
+    except Exception as e:
+        logger.error(f"Error saving survey response: {e}")
+        raise HTTPException(status_code=500, detail="Błąd podczas zapisywania odpowiedzi")
 
 @app.get("/api/survey/stats")
 async def get_survey_stats():
-    # ... (Statystyki bez zmian)
+    """Pobiera statystyki ankiet"""
     try:
         conn = get_db_connection()
         cur = conn.cursor()

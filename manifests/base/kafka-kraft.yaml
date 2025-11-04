@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: davtrowebdbvault
+  labels:
+    app: kafka
+spec:
+  serviceName: kafka
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+        environment: development # Dodano etykietę dla Kyverno
+    spec:
+      containers:
+      - name: kafka
+        image: bitnami/kafka:3.8.0 # Poprawiony, stabilny tag
+        envFrom:
+        - configMapRef:
+            name: kafka-config-kraft
+        ports:
+        - containerPort: 9092
+          name: plaintext
+        - containerPort: 9093
+          name: controller
+        command:
+        - sh
+        - -c
+        - |
+          # Logika inicjalizacji KRaft (zgodna z błędem w Podzie)
+          if [ ! -d "/bitnami/kafka/data/kraft-combined-logs/__cluster_metadata" ]; then
+            echo "Inicjalizacja KRaft storage..."
+            /opt/bitnami/kafka/bin/kafka-storage.sh format               --ignore-formatted               --config /opt/bitnami/kafka/config/server.properties               --cluster-id ${KAFKA_CLUSTER_ID}
+          fi
+          
+          echo "Uruchamianie brokera/kontrolera KRaft..."
+          # Zamiast server-start.sh używam run.sh, który lepiej obsługuje konfigurację Bitnami
+          /opt/bitnami/kafka/bin/kafka-run.sh start
+        volumeMounts:
+        - name: kafka-data
+          mountPath: /bitnami/kafka
+  volumeClaimTemplates:
+  - metadata:
+      name: kafka-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: davtrowebdbvault
+spec:
+  clusterIP: None # Wymagane dla statefulset
+  selector:
+    app: kafka
+  ports:
+  - name: plaintext
+    port: 9092
+    targetPort: 9092
+  - name: controller
+    port: 9093
+    targetPort: 9093

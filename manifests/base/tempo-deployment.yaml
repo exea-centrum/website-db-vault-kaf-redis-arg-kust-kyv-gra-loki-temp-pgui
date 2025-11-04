@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: tempo
   namespace: davtrowebdbvault
+  labels:
+    app: tempo # Dodano etykietę dla Kyverno
 spec:
   replicas: 1
   selector:
@@ -12,7 +14,7 @@ spec:
     metadata:
       labels:
         app: tempo
-        environment: development
+        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: tempo
@@ -21,8 +23,6 @@ spec:
           - -config.file=/etc/tempo/tempo.yaml
         ports:
         - containerPort: 3200
-        - containerPort: 4317 # OTLP gRPC
-        - containerPort: 4318 # OTLP HTTP
         volumeMounts:
         - name: config
           mountPath: /etc/tempo
@@ -42,14 +42,6 @@ metadata:
   namespace: davtrowebdbvault
 spec:
   ports:
-  - name: tempo-http
-    port: 3200
-    targetPort: 3200
-  - name: otlp-grpc
-    port: 4317 # Port dla OpenTelemetry (gRPC)
-    targetPort: 4317
-  - name: otlp-http
-    port: 4318 # Port dla OpenTelemetry (HTTP)
-    targetPort: 4318
+  - port: 3200
   selector:
     app: tempo

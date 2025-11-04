@@ -11,8 +11,8 @@ data:
       receivers:
         otlp:
           protocols:
-            grpc: # <--- Odbiera ślady z aplikacji FastAPI (OTLP over gRPC)
             http:
+            grpc:
     storage:
       trace:
         backend: local

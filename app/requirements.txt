@@ -5,8 +5,3 @@ psycopg2-binary==2.9.7
 prometheus-fastapi-instrumentator==5.11.1
 python-multipart==0.0.6
 pydantic==2.5.0
-kafka-python==2.0.2
-opentelemetry-api==1.22.0
-opentelemetry-sdk==1.22.0
-opentelemetry-instrumentation-fastapi==0.43b0
-opentelemetry-exporter-otlp==1.22.0

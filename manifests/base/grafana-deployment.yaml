@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: grafana
   namespace: davtrowebdbvault
+  labels:
+    app: grafana # Dodano etykietę dla Kyverno
 spec:
   replicas: 1
   selector:
@@ -12,7 +14,7 @@ spec:
     metadata:
       labels:
         app: grafana
-        environment: development
+        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: grafana

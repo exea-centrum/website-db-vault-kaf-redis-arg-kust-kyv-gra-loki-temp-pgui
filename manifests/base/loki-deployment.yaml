@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: loki
   namespace: davtrowebdbvault
+  labels:
+    app: loki # Dodano etykietę dla Kyverno
 spec:
   replicas: 1
   selector:
@@ -12,7 +14,7 @@ spec:
     metadata:
       labels:
         app: loki
-        environment: development
+        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: loki

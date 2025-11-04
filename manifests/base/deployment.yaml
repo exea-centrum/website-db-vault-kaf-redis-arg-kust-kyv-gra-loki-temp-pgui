@@ -5,7 +5,6 @@ metadata:
   namespace: davtrowebdbvault
   labels:
     app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
-    environment: development
 spec:
   replicas: 2
   selector:
@@ -15,7 +14,7 @@ spec:
     metadata:
       labels:
         app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
-        environment: development
+        environment: development # Dodano etykietę dla Kyverno
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
@@ -52,16 +51,6 @@ spec:
             configMapKeyRef:
               name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-config
               key: DATABASE_URL
-        # KONFIGURACJA KAFKA (Używamy DNS Service name)
-        - name: KAFKA_BOOTSTRAP_SERVERS
-          value: kafka:9092
-        # KONFIGURACJA TRACINGU DLA TEMPO (OTLP)
-        - name: OTEL_SERVICE_NAME
-          value: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-fastapi
-        - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: http://tempo:4317 # Tempo OTLP gRPC endpoint
-        - name: OTEL_EXPORTER_OTLP_PROTOCOL
-          value: grpc
         resources:
           requests:
             memory: "256Mi"

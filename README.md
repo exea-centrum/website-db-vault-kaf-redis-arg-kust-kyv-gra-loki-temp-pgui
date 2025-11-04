@@ -1,11 +1,11 @@
-# website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat - Unified GitOps Stack (Zintegrowane Kafka KRaft i Tracing)
+# website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat - Unified GitOps Stack
 
 🚀 **Kompleksowa aplikacja z pełnym stack'iem DevOps**
 
 ## 📋 Komponenty
 
 ### Aplikacja
-- **FastAPI** - Strona osobista z ankietą. **Wysyła wiadomości do Kafka i Tracing do Tempo.**
+- **FastAPI** - Strona osobista z ankietą
 - **PostgreSQL** - Baza danych
 - **pgAdmin** - Zarządzanie bazą danych
 
@@ -18,14 +18,14 @@
 - **Vault** - Zarządzanie sekretami
 
 ### Messaging & Cache
-- **Kafka (KRaft)** - Kolejka wiadomości. **Uproszczona, bez ZooKeepera.** Aplikacja FastAPI jest Producentem.
-- **Redis** - In-memory cache.
+- **Kafka (KRaft)** - Kolejka wiadomości (tryb bez Zookeepera)
+- **Redis** - Cache i kolejki
 
-### Monitoring & Observability (Pełny Trójkąt)
+### Monitoring & Observability
 - **Prometheus** - Metryki
-- **Grafana** - Wizualizacja (Metryki, Logi, Ślady)
-- **Loki** - Logi (Współpracuje z Promtail)
-- **Tempo** - Distributed tracing. **Zbiera ślady OpenTelemetry z FastAPI.**
+- **Grafana** - Wizualizacja
+- **Loki** - Logi
+- **Tempo** - Distributed tracing
 - **Promtail** - Agregacja logów
 
 ## 🚀 Użycie
@@ -40,7 +40,7 @@ chmod +x unified-deployment.sh
 ```bash
 git init
 git add .
-git commit -m "Initial commit - unified stack with Kafka KRaft and Tempo tracing"
+git commit -m "Initial commit - unified stack with Kafka KRaft"
 git branch -M main
 git remote add origin https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git
 git push -u origin main
@@ -70,21 +70,14 @@ kubectl describe application website-db-stack -n argocd
 
 ## ⚠️ Typowe problemy
 
-### Błąd: ImagePullBackOff lub CrashLoopBackOff w Kafka
-**Przyczyna**: Zazwyczaj oznacza to, że kontener Kafka nie mógł się poprawnie uruchomić, ale błąd pobierania obrazu został naprawiony (używamy teraz stabilnego `bitnami/kafka:3.7.0`). Upewnij się, że PersistentVolumeClaim jest poprawnie powiązany.
-**Rozwiązanie**: Sprawdź logi podu Kafka:
-```bash
-kubectl logs kafka-0 -n davtrowebdbvault
+**Problem: Kyverno odrzuca Deployment/StatefulSet**
+**Rozwiązanie**: Upewnij się, że wszystkie zasoby mają etykiety:
+```yaml
+metadata:
+  labels:
+    app: nazwa-aplikacji
+    environment: development
 ```
-Pamiętaj, że w trybie KRaft wolumen musi zostać sformatowany tylko raz, co jest obsługiwane przez skrypt startowy kontenera.
-
-### "app path does not exist"
-**Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna.
-
-**Rozwiązanie**:
-1. Upewnij się że zrobiłeś `git push` po generowaniu
-2. Sprawdź czy folder `manifests/base/` istnieje w repo na GitHub
-3. Sprawdź czy plik `manifests/base/kustomization.yaml` jest dostępny
 
 ## 🌐 Dostęp
 
@@ -93,10 +86,22 @@ Pamiętaj, że w trybie KRaft wolumen musi zostać sformatowany tylko raz, co je
 - **Grafana**: http://grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local (admin / admin)
 - **Vault**: http://vault.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local:8200
 
+## 📊 Baza danych
+
+### Tabele:
+- `survey_responses` - Odpowiedzi z ankiety
+- `page_visits` - Statystyki odwiedzin
+- `contact_messages` - Wiadomości kontaktowe
+
+## 🔐 Sekretna konfiguracja
+
+### GitHub Secrets wymagane:
+- `GHCR_PAT` - Personal Access Token dla GitHub Container Registry
+
 ## 📦 Namespace
 `davtrowebdbvault`
 
-## 🏗️ Architektura (Zintegrowana)
+## 🏗️ Architektura
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -112,16 +117,13 @@ Pamiętaj, że w trybie KRaft wolumen musi zostać sformatowany tylko raz, co je
 │  │   FastAPI    │  │  PostgreSQL  │               │
 │  │   Website    │──│   Database   │               │
 │  └──────────────┘  └──────────────┘               │
-│         │ Tracing (Tempo)                           │
+│         │                                           │
 │         ├────────────┬─────────────┬───────────────┤
 │         ▼            ▼             ▼               ▼
-│  ┌──────────┐  ┌──────────┐  ┌─────────┐    ┌──────────┐
-│  │  Redis   │  │  Kafka   │  │  Vault  │    │ pgAdmin  │
-│  └──────────┘  │ (KRaft)  │  └─────────┘    └──────────┘
-│                  └──────────┘                                  │
-│                  ^                                  │
-│                  │ Wiadomości (Survey Topic)          │
-│                  │                                  │
+│  ┌──────────┐  ┌─────────┐  ┌─────────┐    ┌──────────┐
+│  │  Redis   │  │  Kafka  │  │  Vault  │    │ pgAdmin  │
+│  └──────────┘  │ (KRaft) │  └─────────┘    └──────────┘
+│                └─────────┘                     │
 │  ┌─────────────────────────────────────────────┐  │
 │  │         Observability Stack                 │  │
 │  │  ┌──────────┐ ┌─────────┐ ┌──────────┐    │  │
@@ -138,3 +140,28 @@ Pamiętaj, że w trybie KRaft wolumen musi zostać sformatowany tylko raz, co je
 │  └─────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────┘
 ```
+
+## 🛠️ Rozwój
+
+### Struktura projektu:
+```
+.
+├── app/
+│   ├── main.py              # FastAPI aplikacja
+│   ├── requirements.txt     # Zależności Python
+│   └── templates/
+│       └── index.html       # Frontend
+├── manifests/
+│   └── base/               # Manifesty Kubernetes
+│       ├── *.yaml
+│       └── kustomization.yaml
+├── .github/
+│   └── workflows/
+│       └── ci.yml          # GitHub Actions
+├── Dockerfile
+└── unified-deployment.sh   # Ten skrypt
+```
+
+## 📝 Licencja
+
+MIT License - Dawid Trojanowski © 2025

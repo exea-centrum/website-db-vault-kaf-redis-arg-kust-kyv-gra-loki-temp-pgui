@@ -3,6 +3,8 @@ kind: StatefulSet
 metadata:
   name: redis
   namespace: davtrowebdbvault
+  labels:
+    app: redis # Dodano etykietę dla Kyverno
 spec:
   serviceName: redis
   replicas: 1
@@ -13,7 +15,7 @@ spec:
     metadata:
       labels:
         app: redis
-        environment: development
+        environment: development # Dodano etykietę dla Kyverno
     spec:
       containers:
       - name: redis
