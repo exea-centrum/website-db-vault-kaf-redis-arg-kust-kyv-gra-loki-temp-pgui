@@ -3,6 +3,9 @@ kind: StatefulSet
 metadata:
   name: postgres
   namespace: davtrowebdbvault
+  labels:
+    app: postgres
+    environment: development
 spec:
   serviceName: postgres
   replicas: 1
@@ -13,6 +16,7 @@ spec:
     metadata:
       labels:
         app: postgres
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
       containers:
       - name: postgres
@@ -61,6 +65,9 @@ kind: Service
 metadata:
   name: postgres
   namespace: davtrowebdbvault
+  labels:
+    app: postgres
+    environment: development
 spec:
   selector:
     app: postgres

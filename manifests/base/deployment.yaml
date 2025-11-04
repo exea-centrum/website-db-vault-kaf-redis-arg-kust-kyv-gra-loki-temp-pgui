@@ -1,25 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+  name: webstack-gitops
   namespace: davtrowebdbvault
   labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+    app: webstack-gitops
+    environment: development
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+      app: webstack-gitops
   template:
     metadata:
       labels:
-        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+        app: webstack-gitops
+        environment: development # KLUCZOWE DLA KYVERNO
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
-      serviceAccountName: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+      serviceAccountName: webstack-gitops
       initContainers:
       - name: wait-for-db
         image: postgres:14
@@ -28,6 +30,7 @@ spec:
         - -c
         - |
           echo "Waiting for database..."
+          # Używamy nowej, krótszej nazwy PROJECT do czekania na POSTGRES
           until pg_isready -h postgres -p 5432 -U appuser -d appdb; do
             echo "Database not ready. Waiting..."
             sleep 5
@@ -41,23 +44,23 @@ spec:
               key: postgres-password
       containers:
       - name: app
-        image: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:latest
+        image: ghcr.io/exea-centrum/webstack-gitops:latest
         ports:
         - containerPort: 8000
         env:
         - name: DATABASE_URL
           valueFrom:
             configMapKeyRef:
-              name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-config
+              name: webstack-gitops-config
               key: DATABASE_URL
-        # KONFIGURACJA KAFKA
+        # KONFIGURACJA KAFKA (KRaft)
         - name: KAFKA_BOOTSTRAP_SERVERS
           value: kafka:9092
         # KONFIGURACJA TRACINGU DLA TEMPO (OTLP)
         - name: OTEL_SERVICE_NAME
-          value: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-fastapi
+          value: webstack-gitops-fastapi
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: http://tempo:4317 # Tempo OTLP gRPC endpoint
+          value: http://tempo:4317
         - name: OTEL_EXPORTER_OTLP_PROTOCOL
           value: grpc
         resources:

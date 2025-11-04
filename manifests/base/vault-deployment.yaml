@@ -3,6 +3,9 @@ kind: StatefulSet
 metadata:
   name: vault
   namespace: davtrowebdbvault
+  labels:
+    app: vault
+    environment: development
 spec:
   serviceName: vault
   replicas: 1
@@ -13,6 +16,7 @@ spec:
     metadata:
       labels:
         app: vault
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
       containers:
       - name: vault
@@ -43,6 +47,9 @@ kind: Service
 metadata:
   name: vault
   namespace: davtrowebdbvault
+  labels:
+    app: vault
+    environment: development
 spec:
   ports:
   - port: 8200

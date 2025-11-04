@@ -3,6 +3,9 @@ kind: StatefulSet
 metadata:
   name: redis
   namespace: davtrowebdbvault
+  labels:
+    app: redis
+    environment: development
 spec:
   serviceName: redis
   replicas: 1
@@ -13,6 +16,7 @@ spec:
     metadata:
       labels:
         app: redis
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
       containers:
       - name: redis
@@ -37,6 +41,9 @@ kind: Service
 metadata:
   name: redis
   namespace: davtrowebdbvault
+  labels:
+    app: redis
+    environment: development
 spec:
   ports:
   - port: 6379

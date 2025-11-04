@@ -1,13 +1,14 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+  name: webstack-gitops
   namespace: davtrowebdbvault
   labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+    app: webstack-gitops
+    environment: development
 spec:
   selector:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+    app: webstack-gitops
   ports:
     - port: 80
       targetPort: 8000

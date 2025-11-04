@@ -78,7 +78,7 @@ def get_kafka_producer():
         producer = KafkaProducer(
             bootstrap_servers=KAFKA_SERVER.split(','),
             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-            api_version=(0, 10, 1) # Zgodność z nowszymi wersjami
+            api_version=(0, 10, 1)
         )
         logger.info(f"Kafka Producer initialized for {KAFKA_SERVER}")
         return producer
@@ -201,7 +201,6 @@ async def health_check():
 @app.get("/api/survey/questions")
 async def get_survey_questions():
     """Pobiera listę pytań do ankiety"""
-    # ... (pytania ankiety bez zmian)
     questions = [
         {
             "id": 1,
@@ -269,7 +268,6 @@ async def submit_survey(response: SurveyResponse):
                 logger.info(f"Message sent to Kafka topic 'survey-topic'")
             except Exception as e:
                 logger.error(f"Error sending message to Kafka: {e}")
-                # Kontynuujemy pomimo błędu Kafka, bo zapis do DB się powiódł
                 pass
         else:
             logger.warning("Kafka Producer is not initialized. Skipping message send.")

@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: grafana
   namespace: davtrowebdbvault
+  labels:
+    app: grafana
+    environment: development
 spec:
   replicas: 1
   selector:
@@ -12,6 +15,7 @@ spec:
     metadata:
       labels:
         app: grafana
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
       containers:
       - name: grafana
@@ -42,6 +46,9 @@ kind: Service
 metadata:
   name: grafana
   namespace: davtrowebdbvault
+  labels:
+    app: grafana
+    environment: development
 spec:
   ports:
   - port: 3000

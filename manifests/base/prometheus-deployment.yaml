@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: prometheus
   namespace: davtrowebdbvault
+  labels:
+    app: prometheus
+    environment: development
 spec:
   replicas: 1
   selector:
@@ -12,6 +15,7 @@ spec:
     metadata:
       labels:
         app: prometheus
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
       containers:
       - name: prometheus
@@ -32,6 +36,9 @@ kind: Service
 metadata:
   name: prometheus
   namespace: davtrowebdbvault
+  labels:
+    app: prometheus
+    environment: development
 spec:
   ports:
   - port: 9090

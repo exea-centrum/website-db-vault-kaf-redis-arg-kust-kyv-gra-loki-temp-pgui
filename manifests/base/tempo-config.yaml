@@ -11,7 +11,7 @@ data:
       receivers:
         otlp:
           protocols:
-            grpc: # <--- WAŻNE: Odbiera ślady z aplikacji
+            grpc: 
             http:
     storage:
       trace:

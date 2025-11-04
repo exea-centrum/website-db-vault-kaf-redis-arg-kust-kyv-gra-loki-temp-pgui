@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: promtail
   namespace: davtrowebdbvault
+  labels:
+    app: promtail
+    environment: development
 spec:
   replicas: 1
   selector:
@@ -12,6 +15,7 @@ spec:
     metadata:
       labels:
         app: promtail
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
       containers:
       - name: promtail

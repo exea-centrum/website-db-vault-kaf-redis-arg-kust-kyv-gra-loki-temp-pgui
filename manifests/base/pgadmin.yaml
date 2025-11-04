@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: pgadmin
   namespace: davtrowebdbvault
+  labels:
+    app: pgadmin
+    environment: development
 spec:
   replicas: 1
   selector:
@@ -12,6 +15,7 @@ spec:
     metadata:
       labels:
         app: pgadmin
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
       initContainers:
       - name: wait-for-db
@@ -52,6 +56,9 @@ kind: Service
 metadata:
   name: pgadmin
   namespace: davtrowebdbvault
+  labels:
+    app: pgadmin
+    environment: development
 spec:
   selector:
     app: pgadmin

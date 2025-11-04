@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: loki
   namespace: davtrowebdbvault
+  labels:
+    app: loki
+    environment: development
 spec:
   replicas: 1
   selector:
@@ -12,6 +15,7 @@ spec:
     metadata:
       labels:
         app: loki
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
       containers:
       - name: loki
@@ -33,6 +37,9 @@ kind: Service
 metadata:
   name: loki
   namespace: davtrowebdbvault
+  labels:
+    app: loki
+    environment: development
 spec:
   ports:
   - port: 3100

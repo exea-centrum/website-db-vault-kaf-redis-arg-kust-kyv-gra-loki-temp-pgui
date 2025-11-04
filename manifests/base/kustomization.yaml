@@ -12,7 +12,7 @@ resources:
   - postgres.yaml
   - pgadmin.yaml
   - redis.yaml
-  - kafka.yaml
+  - kafka.yaml # Używamy tylko Kafki (KRaft)
   - deployment.yaml
   - service.yaml
   - ingress.yaml
@@ -28,13 +28,14 @@ resources:
   - tempo-deployment.yaml
   - kyverno-policy.yaml
 
-# Poprawiono: 'commonLabels' jest przestarzałe, używamy 'labels'
+# Poprawiono: 'commonLabels' na 'labels'
 labels:
 - pairs:
     app: website-db-stack
-    environment: development
+    environment: development # KLUCZOWE DLA KYVERNO
     managed-by: argocd
 
 images:
   - name: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+    newName: ghcr.io/exea-centrum/webstack-gitops # Używamy nowej nazwy rejestru
     newTag: latest

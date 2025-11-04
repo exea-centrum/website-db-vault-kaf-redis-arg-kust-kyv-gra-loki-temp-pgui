@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: tempo
   namespace: davtrowebdbvault
+  labels:
+    app: tempo
+    environment: development
 spec:
   replicas: 1
   selector:
@@ -12,6 +15,7 @@ spec:
     metadata:
       labels:
         app: tempo
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
       containers:
       - name: tempo
@@ -39,16 +43,19 @@ kind: Service
 metadata:
   name: tempo
   namespace: davtrowebdbvault
+  labels:
+    app: tempo
+    environment: development
 spec:
   ports:
   - name: tempo-http
     port: 3200
     targetPort: 3200
   - name: otlp-grpc
-    port: 4317 # Port dla OpenTelemetry (gRPC)
+    port: 4317 
     targetPort: 4317
   - name: otlp-http
-    port: 4318 # Port dla OpenTelemetry (HTTP)
+    port: 4318 
     targetPort: 4318
   selector:
     app: tempo

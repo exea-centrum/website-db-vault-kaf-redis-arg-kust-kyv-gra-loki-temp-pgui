@@ -1,23 +1,26 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+  name: webstack-gitops
   namespace: davtrowebdbvault
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
+  labels: # Dodano etykiety
+    app: webstack-gitops
+    environment: development
 spec:
   rules:
-  - host: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
+  - host: app.webstack-gitops.local # Uproszczona nazwa hosta
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+            name: webstack-gitops
             port:
               number: 80
-  - host: pgadmin.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
+  - host: pgadmin.webstack-gitops.local
     http:
       paths:
       - path: /
@@ -27,7 +30,7 @@ spec:
             name: pgadmin
             port:
               number: 80
-  - host: grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
+  - host: grafana.webstack-gitops.local
     http:
       paths:
       - path: /

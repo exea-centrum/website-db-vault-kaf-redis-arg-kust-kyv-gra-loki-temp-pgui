@@ -10,5 +10,6 @@ data:
     scrape_configs:
       - job_name: 'fastapi'
         metrics_path: /metrics
+        # Używamy nowej, krótszej nazwy PROJECT
         static_configs:
-          - targets: ['website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:8000']
+          - targets: ['webstack-gitops:8000'] 
