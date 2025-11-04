@@ -15,7 +15,7 @@ spec:
     metadata:
       labels:
         app: prometheus
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: prometheus

@@ -1,26 +1,26 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: webstack-gitops
+  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
   namespace: davtrowebdbvault
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
   labels: 
-    app: webstack-gitops
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
     environment: development
 spec:
   rules:
-  - host: app.webstack-gitops.local 
+  - host: app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local 
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: webstack-gitops
+            name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
             port:
               number: 80
-  - host: pgadmin.webstack-gitops.local
+  - host: pgadmin.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
     http:
       paths:
       - path: /
@@ -30,7 +30,7 @@ spec:
             name: pgadmin
             port:
               number: 80
-  - host: grafana.webstack-gitops.local
+  - host: grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
     http:
       paths:
       - path: /
@@ -40,7 +40,7 @@ spec:
             name: grafana
             port:
               number: 3000
-  - host: adminer.webstack-gitops.local # DODANO ADMINER
+  - host: adminer.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
     http:
       paths:
       - path: /

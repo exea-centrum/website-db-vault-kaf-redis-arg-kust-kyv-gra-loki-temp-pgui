@@ -17,11 +17,11 @@ from kafka import KafkaProducer
 
 # Wymagane importy dla OpenTelemetry
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentel-e-metry.sdk.resources import Resource
+from opentel-e-metry import trace
+from opentel-e-metry.sdk.trace import TracerProvider
+from opentel-e-metry.sdk.trace.export import BatchSpanProcessor
+from opentel-e-metry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
 
 app = FastAPI(title="Dawid Trojanowski - Strona Osobista")

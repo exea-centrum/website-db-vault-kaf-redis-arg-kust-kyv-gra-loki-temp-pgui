@@ -15,7 +15,7 @@ spec:
     metadata:
       labels:
         app: pgadmin
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       initContainers:
       - name: wait-for-db

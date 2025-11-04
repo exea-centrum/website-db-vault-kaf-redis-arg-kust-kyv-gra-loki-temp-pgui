@@ -1,27 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: webstack-gitops
+  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
   namespace: davtrowebdbvault
   labels:
-    app: webstack-gitops
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
     environment: development
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: webstack-gitops
+      app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
   template:
     metadata:
       labels:
-        app: webstack-gitops
-        environment: development # KLUCZOWE DLA KYVERNO
+        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+        environment: development 
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
-      serviceAccountName: webstack-gitops
+      serviceAccountName: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
       initContainers:
       - name: wait-for-db
         image: postgres:14
@@ -43,21 +43,21 @@ spec:
               key: postgres-password
       containers:
       - name: app
-        image: ghcr.io/exea-centrum/webstack-gitops:latest
+        image: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:latest
         ports:
         - containerPort: 8000
         env:
         - name: DATABASE_URL
           valueFrom:
             configMapKeyRef:
-              name: webstack-gitops-config
+              name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-config
               key: DATABASE_URL
         # KONFIGURACJA KAFKA (KRaft)
         - name: KAFKA_BOOTSTRAP_SERVERS
           value: kafka:9092
         # KONFIGURACJA TRACINGU DLA TEMPO (OTLP)
         - name: OTEL_SERVICE_NAME
-          value: webstack-gitops-fastapi
+          value: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-fastapi
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://tempo:4317
         - name: OTEL_EXPORTER_OTLP_PROTOCOL

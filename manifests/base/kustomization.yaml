@@ -29,14 +29,13 @@ resources:
   - tempo-deployment.yaml
   - kyverno-policy.yaml
 
-# Poprawiono: 'commonLabels' na 'labels'
 labels:
 - pairs:
-    app: webstack-gitops
-    environment: development # KLUCZOWE DLA KYVERNO
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+    environment: development 
     managed-by: argocd
 
 images:
   - name: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
-    newName: ghcr.io/exea-centrum/webstack-gitops 
+    newName: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat 
     newTag: latest

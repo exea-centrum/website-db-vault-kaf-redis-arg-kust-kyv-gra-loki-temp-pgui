@@ -16,7 +16,7 @@ spec:
     metadata:
       labels:
         app: kafka
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: kafka

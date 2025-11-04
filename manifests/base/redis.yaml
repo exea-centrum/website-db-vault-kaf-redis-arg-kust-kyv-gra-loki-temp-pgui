@@ -16,7 +16,7 @@ spec:
     metadata:
       labels:
         app: redis
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: redis

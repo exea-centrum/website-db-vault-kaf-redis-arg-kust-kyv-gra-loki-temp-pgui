@@ -1,4 +1,4 @@
-# webstack-gitops - Unified GitOps Stack (Finalna Wersja)
+# website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat - Unified GitOps Stack (Finalna Wersja)
 
 🚀 **Kompleksowa aplikacja z pełnym stack'iem DevOps**
 
@@ -7,7 +7,7 @@
 - **PostgreSQL** (DB)
 - **pgAdmin** (DB UI)
 - **Adminer** (DB UI Alternatywa)
-- **Vault** (Secrets, z poprawionym initContainerem)
+- **Vault** (Secrets, z POPRAWIONYM initContainerem dla read-only fix)
 - **Kafka KRaft** (Messaging, bez Zookeepera)
 - **Redis** (Cache)
 - **Prometheus/Grafana/Loki/Tempo/Promtail** (Observability)
@@ -17,7 +17,7 @@
 
 ### 1. Generowanie i push do Git
 
-Musisz wygenerować manifesty z **poprawionym Vaultem i Adminerem** i wypchnąć je do repozytorium.
+Musisz wygenerować manifesty z **poprawną długą nazwą** i wypchnąć je do repozytorium.
 
 ```bash
 # 1. Usuń stary folder, aby zresetować pliki
@@ -26,30 +26,36 @@ rm -rf manifests/ argocd-application.yaml
 # 2. Uruchom skrypt
 ./unified-deployment.sh generate
 
-# 3. Dodaj, commituj i push do repo (użyj nazwy webstack-gitops!)
+# 3. Dodaj, commituj i push do repo (użyj nazwy website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat!)
 git add .
-git commit -m "Final Fix: Vault initContainer for read-only config fix and added Adminer component."
+git commit -m "Final Fix: Corrected long project name for ArgoCD, Vault initContainer applied, added Adminer component."
 git push -u origin main
 ```
 
-### 2. Czyszczenie starych zasobów w Kubernetes
+### 2. Konfiguracja ArgoCD i Czyszczenie Zasobów Kubernetes
 
-**TO JEST KRYTYCZNE DLA NAPRAWY VAULT.** Musisz usunąć stary StatefulSet, aby ArgoCD mogło zastosować nową definicję z InitContainerem.
+Musisz usunąć starą, błędną aplikację ArgoCD i zaaplikować nową (a następnie wymusić reset zasobów).
 
 ```bash
-# USUŃ WSZYSTKIE StatefulSety, Deploymenty i Ingress, by wymusić restart z poprawną konfiguracją
-kubectl delete deployment -l app -n davtrowebdbvault
-kubectl delete statefulset -l app -n davtrowebdbvault
-kubectl delete ingress webstack-gitops -n davtrowebdbvault
+# 1. USUŃ starą aplikację ArgoCD (z błędną lub starą nazwą)
+kubectl delete application webstack-gitops -n argocd || true
+
+# 2. ZASTOSUJ nową aplikację ArgoCD (z poprawną, długą nazwą)
+kubectl apply -f argocd-application.yaml
+
+# 3. KRYTYCZNE: USUŃ STARE ZASOBY (aby nowy Ingress i Vault mogły wystartować)
+kubectl delete deployment -l app -n davtrowebdbvault || true
+kubectl delete statefulset -l app -n davtrowebdbvault || true
+kubectl delete ingress website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat -n davtrowebdbvault || true # Używa poprawnej nazwy Ingress
 
 # USUŃ PVC (Ważne dla resetu Vault/Postgres/Kafka/Redis)
-kubectl delete pvc -l app=vault -n davtrowebdbvault
-kubectl delete pvc -l app=postgres -n davtrowebdbvault
-kubectl delete pvc -l app=kafka -n davtrowebdbvault
-kubectl delete pvc -l app=redis -n davtrowebdbvault
+kubectl delete pvc -l app=vault -n davtrowebdbvault || true
+kubectl delete pvc -l app=postgres -n davtrowebdbvault || true
+kubectl delete pvc -l app=kafka -n davtrowebdbvault || true
+kubectl delete pvc -l app=redis -n davtrowebdbvault || true
 
-# Wymuś pełną synchronizację w ArgoCD
-argocd app sync webstack-gitops --refresh --prune
+# 4. Wymuś pełną synchronizację w ArgoCD
+argocd app sync website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat --refresh --prune
 ```
 
 ### 3. Weryfikacja Podów i DNS
@@ -64,14 +70,14 @@ kubectl get pods -n davtrowebdbvault
 
 ```
 # Zastąp XXX.XXX.XXX.XXX adresem IP Twojego Ingress Controller'a
-XXX.XXX.XXX.XXX app.webstack-gitops.local
-XXX.XXX.XXX.XXX pgadmin.webstack-gitops.local
-XXX.XXX.XXX.XXX grafana.webstack-gitops.local
-XXX.XXX.XXX.XXX adminer.webstack-gitops.local 
+XXX.XXX.XXX.XXX app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
+XXX.XXX.XXX.XXX pgadmin.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
+XXX.XXX.XXX.XXX grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
+XXX.XXX.XXX.XXX adminer.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local 
 ```
 
 ## 🌐 Dostęp
-- **Aplikacja**: http://app.webstack-gitops.local
-- **pgAdmin**: http://pgadmin.webstack-gitops.local (admin@admin.com / admin)
-- **Adminer**: http://adminer.webstack-gitops.local (Server: `postgres`, User: `appuser`, Pass: `apppass`, DB: `appdb`)
-- **Grafana**: http://grafana.webstack-gitops.local (admin / admin)
+- **Aplikacja**: http://app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
+- **pgAdmin**: http://pgadmin.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local (admin@admin.com / admin)
+- **Adminer**: http://adminer.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local (Server: `postgres`, User: `appuser`, Pass: `apppass`, DB: `appdb`)
+- **Grafana**: http://grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local (admin / admin)

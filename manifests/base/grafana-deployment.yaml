@@ -15,7 +15,7 @@ spec:
     metadata:
       labels:
         app: grafana
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: grafana

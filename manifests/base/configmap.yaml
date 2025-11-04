@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: webstack-gitops-config
+  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-config
   namespace: davtrowebdbvault
 data:
   DATABASE_URL: "dbname=appdb user=appuser password=apppass host=postgres"

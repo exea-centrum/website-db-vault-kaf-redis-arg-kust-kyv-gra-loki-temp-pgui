@@ -11,4 +11,4 @@ data:
       - job_name: 'fastapi'
         metrics_path: /metrics
         static_configs:
-          - targets: ['webstack-gitops:8000'] 
+          - targets: ['website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:8000'] 
