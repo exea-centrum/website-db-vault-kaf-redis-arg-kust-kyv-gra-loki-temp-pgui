@@ -1,8 +1,9 @@
+# manifests/base/vault-deployment.yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: vault
-  namespace: davtrowebdbvault
+  namespace: davtrowebdbvault # Zmienna: ${NAMESPACE}
   labels:
     app: vault
     environment: development
@@ -16,42 +17,50 @@ spec:
     metadata:
       labels:
         app: vault
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
+      # =================================================================
+      # ZMIANA 1: Ustawienie securityContext dla Pod,
+      # aby umożliwić kontenerowi Vault poprawne zarządzanie UID/GID.
+      # =================================================================
+      securityContext:
+        runAsUser: 0 # Uruchom jako root (jest to standardowa praktyka dla oficjalnego obrazu Vault)
+        fsGroup: 100 # Ustawienie grupy dla wolumenów, pomaga w uprawnieniach
+
       containers:
-      - name: vault
-        image: hashicorp/vault:1.15.3
-        args: ["server","-config=/vault/config/vault.hcl"]
-        ports:
-        - containerPort: 8200
-        volumeMounts:
-        - name: vault-config
-          mountPath: /vault/config
-        - name: vault-data
-          mountPath: /vault/data
-      volumes:
-      - name: vault-config
-        configMap:
-          name: vault-config
-  volumeClaimTemplates:
-  - metadata:
-      name: vault-data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 10Gi
+        - name: vault
+          image: hashicorp/vault:1.15.3
+          args: ["server", "-config=/vault/config/vault.hcl"]
+          ports:
+            - containerPort: 8200
+          # =================================================================
+          # ZMIANA 2: Użycie 'subPath' zamiast całego ConfigMap VolumeMount.
+          # Pomaga to obejść błąd 'chown' na wolumenie ConfigMap.
+          # =================================================================
+          volumeMounts:
+            - name: vault-config
+              mountPath: /vault/config/vault.hcl # Montujemy tylko plik, nie cały katalog
+              subPath: vault.hcl # Wskazujemy konkretny plik w ConfigMap
+            - name: vault-data
+              mountPath: /vault/data
+          # Zmiana 3: Dodanie capability IPC_LOCK,
+          # aby uniknąć ostrzeżenia 'Disabling IPC_LOCK'
+          securityContext:
+            capabilities:
+              add:
+                - IPC_LOCK
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: vault
-  namespace: davtrowebdbvault
+  namespace: davtrowebdbvault # Zmienna: ${NAMESPACE}
   labels:
     app: vault
     environment: development
 spec:
   ports:
-  - port: 8200
+    - port: 8200
   selector:
     app: vault
+  type: ClusterIP
