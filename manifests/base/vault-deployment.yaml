@@ -18,9 +18,9 @@ spec:
         app: vault
         environment: development
     spec:
-      # ZMIANA 3: Skrócenie czasu oczekiwania na zakończenie pracy, aby uniknąć problemu z zajętym portem
+      # Skrócony czas oczekiwania (Poprawka błędu 'bind: address already in use')
       terminationGracePeriodSeconds: 5
-      # Ustawienie securityContext na poziomie Pod
+      # Ustawienie securityContext na poziomie Pod (Poprawka błędu 'chown')
       securityContext:
         runAsUser: 0 # Uruchom jako root
         fsGroup: 100
@@ -38,7 +38,6 @@ spec:
             requests:
               cpu: 200m
               memory: 512Mi
-          # ZMIANA 2: Dodanie zmiennej API_ADDR
           env:
             - name: VAULT_API_ADDR
               value: http://vault-0.vault.davtrowebdbvault.svc.cluster.local:8200
@@ -47,7 +46,7 @@ spec:
               add:
                 - IPC_LOCK
           volumeMounts:
-            # ZMIANA 1: Montujemy cały katalog ConfigMap - eliminuje to problemy z uprawnieniami wewnętrznymi
+            # Montujemy cały katalog
             - name: vault-config
               mountPath: /vault/config
             - name: vault-data
@@ -57,6 +56,8 @@ spec:
         - name: vault-config
           configMap:
             name: vault-config
+            # 🔴 KLUCZOWA POPRAWKA: Ustawienie uprawnień do zapisu (0755)
+            defaultMode: 0755
 
   volumeClaimTemplates:
     - metadata:
