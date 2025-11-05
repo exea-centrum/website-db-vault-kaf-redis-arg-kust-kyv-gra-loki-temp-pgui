@@ -16,7 +16,7 @@ spec:
     metadata:
       labels:
         app: postgres
-        environment: development
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
       containers:
       - name: postgres

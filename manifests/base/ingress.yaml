@@ -5,12 +5,12 @@ metadata:
   namespace: davtrowebdbvault
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
-  labels: 
+  labels: # Dodano etykiety
     app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
     environment: development
 spec:
   rules:
-  - host: app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local 
+  - host: app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local # Uproszczona nazwa hosta
     http:
       paths:
       - path: /
@@ -40,13 +40,3 @@ spec:
             name: grafana
             port:
               number: 3000
-  - host: adminer.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: adminer
-            port:
-              number: 8080

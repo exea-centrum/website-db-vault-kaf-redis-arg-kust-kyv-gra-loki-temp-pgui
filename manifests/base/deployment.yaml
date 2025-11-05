@@ -15,7 +15,7 @@ spec:
     metadata:
       labels:
         app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
-        environment: development 
+        environment: development # KLUCZOWE DLA KYVERNO
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
@@ -30,6 +30,7 @@ spec:
         - -c
         - |
           echo "Waiting for database..."
+          # Używamy nowej, krótszej nazwy PROJECT do czekania na POSTGRES
           until pg_isready -h postgres -p 5432 -U appuser -d appdb; do
             echo "Database not ready. Waiting..."
             sleep 5

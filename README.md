@@ -1,83 +1,111 @@
-# website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat - Unified GitOps Stack (Finalna Wersja)
+# website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat - Unified GitOps Stack (Zintegrowane Kafka KRaft i Tracing)
 
 🚀 **Kompleksowa aplikacja z pełnym stack'iem DevOps**
 
-## 📋 KOMPONENTY (WSZYSTKIE)
-- **FastAPI** (App)
-- **PostgreSQL** (DB)
-- **pgAdmin** (DB UI)
-- **Adminer** (DB UI Alternatywa)
-- **Vault** (Secrets, z POPRAWIONYM initContainerem dla read-only fix)
-- **Kafka KRaft** (Messaging, bez Zookeepera)
-- **Redis** (Cache)
-- **Prometheus/Grafana/Loki/Tempo/Promtail** (Observability)
-- **ArgoCD/Kyverno** (GitOps/Security)
+## 📋 Komponenty
 
-## 🚀 FINALNE KROKI WDROŻENIA (KRYTYCZNE)
+### Aplikacja
+- **FastAPI** - Strona osobista z ankietą. **Wysyła wiadomości do Kafka i Tracing do Tempo.**
+- **PostgreSQL** - Baza danych
+- **pgAdmin** - Zarządzanie bazą danych
 
-### 1. Generowanie i push do Git
+### GitOps & Orchestracja
+- **ArgoCD** - Continuous Deployment
+- **Kustomize** - Zarządzanie konfiguracją
+- **Kyverno** - Policy enforcement (Wymaga etykiety `environment: development` w każdym Podzie!)
 
-Musisz wygenerować manifesty z **poprawną długą nazwą** i wypchnąć je do repozytorium.
+### Bezpieczeństwo
+- **Vault** - Zarządzanie sekretami (Konfiguracja naprawiona, aby działać bez `mlock`).
+
+### Messaging & Cache
+- **Kafka (KRaft)** - Kolejka wiadomości. **Usunięto Zookeepera.**
+- **Redis** - Cache i kolejki
+
+### Monitoring & Observability
+- **Prometheus** - Metryki
+- **Grafana** - Wizualizacja (Metryki, Logi, Ślady)
+- **Loki** - Logi (Współpracuje z Promtail)
+- **Tempo** - Distributed tracing. **Zbiera ślady OpenTelemetry z FastAPI.**
+- **Promtail** - Agregacja logów
+
+## ⚠️ WAŻNA INFORMACJA O NOWEJ NAZWIE
+
+**Stara nazwa projektu była za długa, co powodowało błędy Ingress.**
+Nowa, bezpieczna nazwa projektu to: `website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat`.
+
+Oznacza to, że musisz **utworzyć nowe repozytorium** na GitHub o nazwie `website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat`.
+
+## 🚀 Finalne Kroki Wdrożenia (KRYTYCZNE)
+
+Musisz usunąć stare zasoby w klastrze i zsynchronizować Git z nową konfiguracją.
+
+### 1. Generowanie i push do nowego repozytorium
 
 ```bash
 # 1. Usuń stary folder, aby zresetować pliki
 rm -rf manifests/ argocd-application.yaml
 
-# 2. Uruchom skrypt
+# 2. Uruchom skrypt (teraz z nową nazwą PROJECT)
 ./unified-deployment.sh generate
 
-# 3. Dodaj, commituj i push do repo (użyj nazwy website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat!)
+# 3. UTWÓRZ NOWE REPOZYTORIUM na GitHub o nazwie website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+
+# 4. Inicjalizacja Git i push do nowego repo:
+git init
 git add .
-git commit -m "Final Fix: Corrected long project name for ArgoCD, Vault initContainer applied, added Adminer component."
+git commit -m "Final fix: Shortened PROJECT name, implemented Kafka KRaft, and fixed all Kyverno/Vault labels."
+git branch -M main
+git remote add origin https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git
 git push -u origin main
 ```
 
-### 2. Konfiguracja ArgoCD i Czyszczenie Zasobów Kubernetes
+### 2. Czyszczenie starych zasobów w Kubernetes
 
-Musisz usunąć starą, błędną aplikację ArgoCD i zaaplikować nową (a następnie wymusić reset zasobów).
+**To jest niezbędne, aby usunąć pętle restartów (Vault) i stare definicje (Kafka/Zookeeper):**
 
 ```bash
-# 1. USUŃ starą aplikację ArgoCD (z błędną lub starą nazwą)
-kubectl delete application webstack-gitops -n argocd || true
+# Usuń StatefulSety i Service, aby zresetować ich stan
+kubectl delete statefulset vault postgres redis kafka -n davtrowebdbvault
+kubectl delete service vault postgres redis kafka -n davtrowebdbvault
+# Usuń wszelkie zasoby PVC, które mogły zostać utworzone przez stare StatefuSet'y
+kubectl delete pvc -l app=vault -n davtrowebdbvault
+kubectl delete pvc -l app=kafka -n davtrowebdbvault
+kubectl delete pvc -l app=postgres -n davtrowebdbvault
+kubectl delete pvc -l app=redis -n davtrowebdbvault
 
-# 2. ZASTOSUJ nową aplikację ArgoCD (z poprawną, długą nazwą)
+# Usuń stare zasoby ArgoCD
+kubectl delete application website-db-stack -n argocd
+```
+
+### 3. Deploy i synchronizacja
+
+```bash
+# 1. Zastosuj nową Application Defintion
 kubectl apply -f argocd-application.yaml
 
-# 3. KRYTYCZNE: USUŃ STARE ZASOBY (aby nowy Ingress i Vault mogły wystartować)
-kubectl delete deployment -l app -n davtrowebdbvault || true
-kubectl delete statefulset -l app -n davtrowebdbvault || true
-kubectl delete ingress website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat -n davtrowebdbvault || true # Używa poprawnej nazwy Ingress
-
-# USUŃ PVC (Ważne dla resetu Vault/Postgres/Kafka/Redis)
-kubectl delete pvc -l app=vault -n davtrowebdbvault || true
-kubectl delete pvc -l app=postgres -n davtrowebdbvault || true
-kubectl delete pvc -l app=kafka -n davtrowebdbvault || true
-kubectl delete pvc -l app=redis -n davtrowebdbvault || true
-
-# 4. Wymuś pełną synchronizację w ArgoCD
+# 2. Wymuś odświeżenie i synchronizację w ArgoCD
 argocd app sync website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat --refresh --prune
-```
 
-### 3. Weryfikacja Podów i DNS
-
-Po synchronizacji upewnij się, że wszystkie Pody są w stanie **Running**.
-
-```bash
-kubectl get pods -n davtrowebdbvault
-```
-
-**Upewnij się, że plik /etc/hosts zawiera nowe wpisy:**
-
-```
-# Zastąp XXX.XXX.XXX.XXX adresem IP Twojego Ingress Controller'a
+# 3. Zaktualizuj plik /etc/hosts na Twoim komputerze:
+# (Zastąp XXX.XXX.XXX.XXX adresem IP Twojego Ingress Controller'a)
 XXX.XXX.XXX.XXX app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
 XXX.XXX.XXX.XXX pgadmin.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
 XXX.XXX.XXX.XXX grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
-XXX.XXX.XXX.XXX adminer.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local 
 ```
 
 ## 🌐 Dostęp
+
 - **Aplikacja**: http://app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
 - **pgAdmin**: http://pgadmin.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local (admin@admin.com / admin)
-- **Adminer**: http://adminer.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local (Server: `postgres`, User: `appuser`, Pass: `apppass`, DB: `appdb`)
 - **Grafana**: http://grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local (admin / admin)
+- **Vault**: Dostęp klastrowy (port 8200)
+
+## 🏗️ Architektura
+(Skrócona)
+```
+FastAPI ─┬─> PostgreSQL
+         ├─> Kafka (KRaft)
+         ├─> Tempo (Tracing)
+         ├─> Prometheus (Metrics)
+         └─> Grafana/Loki
+```

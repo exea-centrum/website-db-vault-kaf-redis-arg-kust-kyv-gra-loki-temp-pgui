@@ -15,7 +15,7 @@ spec:
     metadata:
       labels:
         app: tempo
-        environment: development
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
       containers:
       - name: tempo

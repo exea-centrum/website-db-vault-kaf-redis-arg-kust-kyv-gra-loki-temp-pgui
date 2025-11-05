@@ -16,37 +16,23 @@ spec:
     metadata:
       labels:
         app: vault
-        environment: development
+        environment: development # KLUCZOWE DLA KYVERNO
     spec:
-      initContainers:
-      - name: copy-config
-        image: busybox:1.36.1 
-        command: ['sh', '-c', 'cp /tmp/config/vault.hcl /vault/config/']
-        volumeMounts:
-        - name: vault-config-cm       # Źródło: ConfigMap (Read-only)
-          mountPath: /tmp/config
-        - name: vault-config-writable # Cel: EmptyDir (Writable)
-          mountPath: /vault/config
       containers:
       - name: vault
         image: hashicorp/vault:1.15.3
         args: ["server","-config=/vault/config/vault.hcl"]
         ports:
         - containerPort: 8200
-        securityContext: # Dodano IPC_LOCK na wypadek, gdyby Vault nie zignorował mlock
-          capabilities:
-            add: ["IPC_LOCK"]
         volumeMounts:
-        - name: vault-config-writable # Montujemy writable EmptyDir
+        - name: vault-config
           mountPath: /vault/config
         - name: vault-data
           mountPath: /vault/data
       volumes:
-      - name: vault-config-cm # ConfigMap montowany tylko do InitContainera
+      - name: vault-config
         configMap:
           name: vault-config
-      - name: vault-config-writable # Writable volume dla configu
-        emptyDir: {}
   volumeClaimTemplates:
   - metadata:
       name: vault-data

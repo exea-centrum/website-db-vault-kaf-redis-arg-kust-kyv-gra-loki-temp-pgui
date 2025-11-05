@@ -2,14 +2,13 @@
 set -euo pipefail
 
 # Unified deployment script - combines website app with full GitOps stack
-# Generates FastAPI app + Kubernetes manifests with ArgoCD, Vault, Postgres, Redis, Kafka (KRaft), Grafana, Prometheus, Loki, Tempo, Kyverno
+# Generates FastAPI app + Kubernetes manifests with ArgoCD, Vault, Postgres, Redis, Kafka (KRaft), Grafana, Prometheus, Loki, Tempo, Kyverno, Adminer
 
-# KRÓTSZA NAZWA PROJEKTU (NAPRAWA BŁĘDU INGRESS)
+# POPRAWNA, DŁUGA NAZWA PROJEKTU (poprawiono błąd z ArgoCD/Ingress)
 PROJECT="website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat" 
 NAMESPACE="davtrowebdbvault"
 ORG="exea-centrum"
 REGISTRY="ghcr.io/${ORG}/${PROJECT}"
-# REPO_URL MUSI BYĆ DOPASOWANY DO NOWEJ, KRÓTSZEJ NAZWY REPOZYTORIUM NA GITHUB!
 REPO_URL="https://github.com/${ORG}/${PROJECT}.git" 
 KAFKA_CLUSTER_ID="4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ" # Stały ID dla jedno-węzłowego KRaft
 
@@ -32,7 +31,7 @@ generate_structure(){
 
 # ==============================
 # FASTAPI APLIKACJA
-# (Kod logiki bez zmian, jest poprawny)
+# (Kod logiki bez zmian)
 # ==============================
 generate_fastapi_app(){
   info "Generowanie FastAPI aplikacji z Kafka i Tracingiem..."
@@ -57,11 +56,11 @@ from kafka import KafkaProducer
 
 # Wymagane importy dla OpenTelemetry
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentel-e-metry.sdk.resources import Resource
+from opentel-e-metry import trace
+from opentel-e-metry.sdk.trace import TracerProvider
+from opentel-e-metry.sdk.trace.export import BatchSpanProcessor
+from opentel-e-metry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
 
 app = FastAPI(title="Dawid Trojanowski - Strona Osobista")
@@ -597,7 +596,7 @@ spec:
     metadata:
       labels:
         app: ${PROJECT}
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development 
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
@@ -612,7 +611,6 @@ spec:
         - -c
         - |
           echo "Waiting for database..."
-          # Używamy nowej, krótszej nazwy PROJECT do czekania na POSTGRES
           until pg_isready -h postgres -p 5432 -U appuser -d appdb; do
             echo "Database not ready. Waiting..."
             sleep 5
@@ -686,7 +684,7 @@ spec:
   type: ClusterIP
 EOF
 
-  # Ingress (NAPRAWA BŁĘDU DŁUGIEJ NAZWY I UPROSZCZENIE HOSTÓW)
+  # Ingress (POPRAWIONO DŁUGĄ NAZWĘ)
   cat > "${BASE_DIR}/ingress.yaml" <<EOF
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -695,12 +693,12 @@ metadata:
   namespace: ${NAMESPACE}
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
-  labels: # Dodano etykiety
+  labels: 
     app: ${PROJECT}
     environment: development
 spec:
   rules:
-  - host: app.${PROJECT}.local # Uproszczona nazwa hosta
+  - host: app.${PROJECT}.local 
     http:
       paths:
       - path: /
@@ -730,6 +728,16 @@ spec:
             name: grafana
             port:
               number: 3000
+  - host: adminer.${PROJECT}.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: adminer
+            port:
+              number: 8080
 EOF
 }
 
@@ -757,7 +765,7 @@ spec:
     metadata:
       labels:
         app: postgres
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: postgres
@@ -842,7 +850,7 @@ spec:
     metadata:
       labels:
         app: pgadmin
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       initContainers:
       - name: wait-for-db
@@ -896,10 +904,82 @@ EOF
 }
 
 # ==============================
-# VAULT (Ujednolicono etykiety, stabilna konfiguracja)
+# ADMINER (NOWOŚĆ: Dodany na życzenie)
+# ==============================
+generate_adminer(){
+  info "Generowanie Adminer..."
+  cat > "${BASE_DIR}/adminer.yaml" <<AD
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adminer
+  namespace: ${NAMESPACE}
+  labels:
+    app: adminer
+    environment: development
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adminer
+  template:
+    metadata:
+      labels:
+        app: adminer
+        environment: development
+    spec:
+      initContainers:
+      - name: wait-for-db
+        image: postgres:14
+        command: 
+        - sh
+        - -c
+        - |
+          until pg_isready -h postgres -p 5432 -U appuser -d appdb; do
+            sleep 5
+          done
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: postgres-password
+      containers:
+      - name: adminer
+        image: adminer:latest
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adminer
+  namespace: ${NAMESPACE}
+  labels:
+    app: adminer
+    environment: development
+spec:
+  selector:
+    app: adminer
+  ports:
+  - port: 8080
+    targetPort: 8080
+AD
+}
+
+
+# ==============================
+# VAULT (OSTATECZNA POPRAWKA: InitContainer dla read-only config)
 # ==============================
 generate_vault(){
-  info "Generowanie Vault..."
+  info "Generowanie Vault (Poprawiono błąd Read-only file system)..."
   cat > "${BASE_DIR}/vault-config.yaml" <<VC
 apiVersion: v1
 kind: ConfigMap
@@ -916,7 +996,7 @@ data:
       tls_disable = "true"
     }
     ui = true
-    disable_mlock = "true" # Poprawka błędu restartu w deweloperskim klastrze
+    disable_mlock = "true" 
 VC
 
   cat > "${BASE_DIR}/vault-deployment.yaml" <<VD
@@ -938,23 +1018,37 @@ spec:
     metadata:
       labels:
         app: vault
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
+      initContainers:
+      - name: copy-config
+        image: busybox:1.36.1 
+        command: ['sh', '-c', 'cp /tmp/config/vault.hcl /vault/config/']
+        volumeMounts:
+        - name: vault-config-cm       # Źródło: ConfigMap (Read-only)
+          mountPath: /tmp/config
+        - name: vault-config-writable # Cel: EmptyDir (Writable)
+          mountPath: /vault/config
       containers:
       - name: vault
         image: hashicorp/vault:1.15.3
         args: ["server","-config=/vault/config/vault.hcl"]
         ports:
         - containerPort: 8200
+        securityContext: # Dodano IPC_LOCK na wypadek, gdyby Vault nie zignorował mlock
+          capabilities:
+            add: ["IPC_LOCK"]
         volumeMounts:
-        - name: vault-config
+        - name: vault-config-writable # Montujemy writable EmptyDir
           mountPath: /vault/config
         - name: vault-data
           mountPath: /vault/data
       volumes:
-      - name: vault-config
+      - name: vault-config-cm # ConfigMap montowany tylko do InitContainera
         configMap:
           name: vault-config
+      - name: vault-config-writable # Writable volume dla configu
+        emptyDir: {}
   volumeClaimTemplates:
   - metadata:
       name: vault-data
@@ -1004,7 +1098,7 @@ spec:
     metadata:
       labels:
         app: redis
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: redis
@@ -1041,7 +1135,7 @@ R
 }
 
 # ==============================
-# KAFKA (NAPRAWA: Wdrożenie Kafka KRaft - bez Zookeepera)
+# KAFKA (Wdrożenie Kafka KRaft - bez Zookeepera)
 # ==============================
 generate_kafka(){
   info "Generowanie Kafka KRaft (bez Zookeepera)..."
@@ -1065,11 +1159,11 @@ spec:
     metadata:
       labels:
         app: kafka
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: kafka
-        image: apache/kafka:3.7.0 # ZMIENIONY OBRAZ (Rozwiązanie ImagePullBackOff)
+        image: apache/kafka:3.7.0 
         env:
         # 1. Konfiguracja KRaft
         - name: KAFKA_CFG_NODE_ID
@@ -1145,7 +1239,6 @@ data:
     scrape_configs:
       - job_name: 'fastapi'
         metrics_path: /metrics
-        # Używamy nowej, krótszej nazwy PROJECT
         static_configs:
           - targets: ['${PROJECT}:8000'] 
 PC
@@ -1168,7 +1261,7 @@ spec:
     metadata:
       labels:
         app: prometheus
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: prometheus
@@ -1235,7 +1328,7 @@ spec:
     metadata:
       labels:
         app: grafana
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: grafana
@@ -1332,7 +1425,7 @@ spec:
     metadata:
       labels:
         app: loki
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: loki
@@ -1413,7 +1506,7 @@ spec:
     metadata:
       labels:
         app: promtail
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: promtail
@@ -1481,7 +1574,7 @@ spec:
     metadata:
       labels:
         app: tempo
-        environment: development # KLUCZOWE DLA KYVERNO
+        environment: development
     spec:
       containers:
       - name: tempo
@@ -1558,22 +1651,22 @@ KY
 }
 
 # ==============================
-# ARGOCD APPLICATION (Używa nowej, krótszej nazwy PROJECT)
+# ARGOCD APPLICATION (Używa POPRAWNEJ, DŁUGIEJ nazwy PROJECT)
 # ==============================
 generate_argocd_app(){
-  info "Generowanie ArgoCD Application..."
+  info "Generowanie ArgoCD Application (repo: ${REPO_URL})..."
   cat > "${BASE_DIR}/argocd-app.yaml" <<'AA'
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: website-db-stack
+  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git # UŻYWA NOWEJ NAZWY REPO!
+    repoURL: https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git 
     targetRevision: HEAD
     path: manifests/base
   destination:
@@ -1605,14 +1698,14 @@ generate_argocd_standalone(){
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: website-db-stack
+  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git # UŻYWA NOWEJ NAZWY REPO!
+    repoURL: https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git
     targetRevision: HEAD
     path: manifests/base
   destination:
@@ -1654,8 +1747,9 @@ resources:
   - vault-deployment.yaml
   - postgres.yaml
   - pgadmin.yaml
+  - adminer.yaml # DODANO ADMINER
   - redis.yaml
-  - kafka.yaml # Używamy tylko Kafki (KRaft)
+  - kafka.yaml 
   - deployment.yaml
   - service.yaml
   - ingress.yaml
@@ -1671,16 +1765,15 @@ resources:
   - tempo-deployment.yaml
   - kyverno-policy.yaml
 
-# Poprawiono: 'commonLabels' na 'labels'
 labels:
 - pairs:
-    app: website-db-stack
-    environment: development # KLUCZOWE DLA KYVERNO
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+    environment: development 
     managed-by: argocd
 
 images:
   - name: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
-    newName: ${REGISTRY} # Używamy nowej nazwy rejestru
+    newName: ${REGISTRY} 
     newTag: latest
 K
 }
@@ -1691,117 +1784,89 @@ K
 generate_readme(){
   info "Generowanie README.md..."
   cat > "${ROOT_DIR}/README.md" <<MD
-# ${PROJECT} - Unified GitOps Stack (Zintegrowane Kafka KRaft i Tracing)
+# ${PROJECT} - Unified GitOps Stack (Finalna Wersja)
 
 🚀 **Kompleksowa aplikacja z pełnym stack'iem DevOps**
 
-## 📋 Komponenty
+## 📋 KOMPONENTY (WSZYSTKIE)
+- **FastAPI** (App)
+- **PostgreSQL** (DB)
+- **pgAdmin** (DB UI)
+- **Adminer** (DB UI Alternatywa)
+- **Vault** (Secrets, z POPRAWIONYM initContainerem dla read-only fix)
+- **Kafka KRaft** (Messaging, bez Zookeepera)
+- **Redis** (Cache)
+- **Prometheus/Grafana/Loki/Tempo/Promtail** (Observability)
+- **ArgoCD/Kyverno** (GitOps/Security)
 
-### Aplikacja
-- **FastAPI** - Strona osobista z ankietą. **Wysyła wiadomości do Kafka i Tracing do Tempo.**
-- **PostgreSQL** - Baza danych
-- **pgAdmin** - Zarządzanie bazą danych
+## 🚀 FINALNE KROKI WDROŻENIA (KRYTYCZNE)
 
-### GitOps & Orchestracja
-- **ArgoCD** - Continuous Deployment
-- **Kustomize** - Zarządzanie konfiguracją
-- **Kyverno** - Policy enforcement (Wymaga etykiety \`environment: development\` w każdym Podzie!)
+### 1. Generowanie i push do Git
 
-### Bezpieczeństwo
-- **Vault** - Zarządzanie sekretami (Konfiguracja naprawiona, aby działać bez \`mlock\`).
-
-### Messaging & Cache
-- **Kafka (KRaft)** - Kolejka wiadomości. **Usunięto Zookeepera.**
-- **Redis** - Cache i kolejki
-
-### Monitoring & Observability
-- **Prometheus** - Metryki
-- **Grafana** - Wizualizacja (Metryki, Logi, Ślady)
-- **Loki** - Logi (Współpracuje z Promtail)
-- **Tempo** - Distributed tracing. **Zbiera ślady OpenTelemetry z FastAPI.**
-- **Promtail** - Agregacja logów
-
-## ⚠️ WAŻNA INFORMACJA O NOWEJ NAZWIE
-
-**Stara nazwa projektu była za długa, co powodowało błędy Ingress.**
-Nowa, bezpieczna nazwa projektu to: \`${PROJECT}\`.
-
-Oznacza to, że musisz **utworzyć nowe repozytorium** na GitHub o nazwie \`${PROJECT}\`.
-
-## 🚀 Finalne Kroki Wdrożenia (KRYTYCZNE)
-
-Musisz usunąć stare zasoby w klastrze i zsynchronizować Git z nową konfiguracją.
-
-### 1. Generowanie i push do nowego repozytorium
+Musisz wygenerować manifesty z **poprawną długą nazwą** i wypchnąć je do repozytorium.
 
 \`\`\`bash
 # 1. Usuń stary folder, aby zresetować pliki
 rm -rf manifests/ argocd-application.yaml
 
-# 2. Uruchom skrypt (teraz z nową nazwą PROJECT)
+# 2. Uruchom skrypt
 ./unified-deployment.sh generate
 
-# 3. UTWÓRZ NOWE REPOZYTORIUM na GitHub o nazwie website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
-
-# 4. Inicjalizacja Git i push do nowego repo:
-git init
+# 3. Dodaj, commituj i push do repo (użyj nazwy website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat!)
 git add .
-git commit -m "Final fix: Shortened PROJECT name, implemented Kafka KRaft, and fixed all Kyverno/Vault labels."
-git branch -M main
-git remote add origin ${REPO_URL}
+git commit -m "Final Fix: Corrected long project name for ArgoCD, Vault initContainer applied, added Adminer component."
 git push -u origin main
 \`\`\`
 
-### 2. Czyszczenie starych zasobów w Kubernetes
+### 2. Konfiguracja ArgoCD i Czyszczenie Zasobów Kubernetes
 
-**To jest niezbędne, aby usunąć pętle restartów (Vault) i stare definicje (Kafka/Zookeeper):**
-
-\`\`\`bash
-# Usuń StatefulSety i Service, aby zresetować ich stan
-kubectl delete statefulset vault postgres redis kafka -n davtrowebdbvault
-kubectl delete service vault postgres redis kafka -n davtrowebdbvault
-# Usuń wszelkie zasoby PVC, które mogły zostać utworzone przez stare StatefuSet'y
-kubectl delete pvc -l app=vault -n davtrowebdbvault
-kubectl delete pvc -l app=kafka -n davtrowebdbvault
-kubectl delete pvc -l app=postgres -n davtrowebdbvault
-kubectl delete pvc -l app=redis -n davtrowebdbvault
-
-# Usuń stare zasoby ArgoCD
-kubectl delete application website-db-stack -n argocd
-\`\`\`
-
-### 3. Deploy i synchronizacja
+Musisz usunąć starą, błędną aplikację ArgoCD i zaaplikować nową (a następnie wymusić reset zasobów).
 
 \`\`\`bash
-# 1. Zastosuj nową Application Defintion
+# 1. USUŃ starą aplikację ArgoCD (z błędną lub starą nazwą)
+kubectl delete application webstack-gitops -n argocd || true
+
+# 2. ZASTOSUJ nową aplikację ArgoCD (z poprawną, długą nazwą)
 kubectl apply -f argocd-application.yaml
 
-# 2. Wymuś odświeżenie i synchronizację w ArgoCD
-argocd app sync website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat --refresh --prune
+# 3. KRYTYCZNE: USUŃ STARE ZASOBY (aby nowy Ingress i Vault mogły wystartować)
+kubectl delete deployment -l app -n davtrowebdbvault || true
+kubectl delete statefulset -l app -n davtrowebdbvault || true
+kubectl delete ingress ${PROJECT} -n davtrowebdbvault || true # Używa poprawnej nazwy Ingress
 
-# 3. Zaktualizuj plik /etc/hosts na Twoim komputerze:
-# (Zastąp XXX.XXX.XXX.XXX adresem IP Twojego Ingress Controller'a)
-XXX.XXX.XXX.XXX app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
-XXX.XXX.XXX.XXX pgadmin.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
-XXX.XXX.XXX.XXX grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
+# USUŃ PVC (Ważne dla resetu Vault/Postgres/Kafka/Redis)
+kubectl delete pvc -l app=vault -n davtrowebdbvault || true
+kubectl delete pvc -l app=postgres -n davtrowebdbvault || true
+kubectl delete pvc -l app=kafka -n davtrowebdbvault || true
+kubectl delete pvc -l app=redis -n davtrowebdbvault || true
+
+# 4. Wymuś pełną synchronizację w ArgoCD
+argocd app sync ${PROJECT} --refresh --prune
+\`\`\`
+
+### 3. Weryfikacja Podów i DNS
+
+Po synchronizacji upewnij się, że wszystkie Pody są w stanie **Running**.
+
+\`\`\`bash
+kubectl get pods -n davtrowebdbvault
+\`\`\`
+
+**Upewnij się, że plik /etc/hosts zawiera nowe wpisy:**
+
+\`\`\`
+# Zastąp XXX.XXX.XXX.XXX adresem IP Twojego Ingress Controller'a
+XXX.XXX.XXX.XXX app.${PROJECT}.local
+XXX.XXX.XXX.XXX pgadmin.${PROJECT}.local
+XXX.XXX.XXX.XXX grafana.${PROJECT}.local
+XXX.XXX.XXX.XXX adminer.${PROJECT}.local 
 \`\`\`
 
 ## 🌐 Dostęp
-
 - **Aplikacja**: http://app.${PROJECT}.local
 - **pgAdmin**: http://pgadmin.${PROJECT}.local (admin@admin.com / admin)
+- **Adminer**: http://adminer.${PROJECT}.local (Server: \`postgres\`, User: \`appuser\`, Pass: \`apppass\`, DB: \`appdb\`)
 - **Grafana**: http://grafana.${PROJECT}.local (admin / admin)
-- **Vault**: Dostęp klastrowy (port 8200)
-
-## 🏗️ Architektura
-(Skrócona)
-\`\`\`
-FastAPI ─┬─> PostgreSQL
-         ├─> Kafka (KRaft)
-         ├─> Tempo (Tracing)
-         ├─> Prometheus (Metrics)
-         └─> Grafana/Loki
-\`\`\`
 MD
 }
 
@@ -1809,7 +1874,7 @@ MD
 # GŁÓWNA FUNKCJA
 # ==============================
 generate_all(){
-  info "🚀 Rozpoczynam generowanie unified stack..."
+  info "🚀 Rozpoczynam generowanie unified stack z poprawną nazwą projektu: ${PROJECT}"
   
   generate_structure
   generate_fastapi_app
@@ -1819,7 +1884,8 @@ generate_all(){
   generate_k8s_base
   generate_postgres
   generate_pgadmin
-  generate_vault
+  generate_adminer 
+  generate_vault   
   generate_redis
   generate_kafka
   generate_prometheus
@@ -1834,10 +1900,9 @@ generate_all(){
   generate_readme
   
   echo ""
-  info "✅ WSZYSTKO GOTOWE! (Nazwa projektu to teraz: ${PROJECT})"
+  info "✅ WSZYSTKO GOTOWE! (Nazwa projektu to: ${PROJECT})"
   echo ""
-  echo "⚠️ PROSZĘ PRZEJDŹ DO SEKCJI '🚀 Finalne Kroki Wdrożenia (KRYTYCZNE)' W README.MD LUB POWYŻEJ"
-  echo "   MUSISZ USUNĄĆ STARE ZASOBY KUBERNETES ORAZ ZROBIĆ PUSH DO NOWEGO REPOZYTORIUM!"
+  echo "⚠️ PROSZĘ PRZEJDŹ DO SEKCJI '🚀 FINALNE KROKI WDROŻENIA (KRYTYCZNE)' W README.MD LUB POWYŻEJ"
   echo ""
 }
 
