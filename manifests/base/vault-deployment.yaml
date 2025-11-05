@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: vault
-  namespace: davtrowebdbvault # Zmienna: ${NAMESPACE}
+  namespace: davtrowebdbvault
   labels:
     app: vault
     environment: development
@@ -18,9 +18,11 @@ spec:
         app: vault
         environment: development
     spec:
-      # ZMIANA 1: Dodanie securityContext na poziomie Pod
+      # ZMIANA 3: Skrócenie czasu oczekiwania na zakończenie pracy, aby uniknąć problemu z zajętym portem
+      terminationGracePeriodSeconds: 5
+      # Ustawienie securityContext na poziomie Pod
       securityContext:
-        runAsUser: 0 # Uruchom jako root, aby uniknąć problemów z uprawnieniami chown
+        runAsUser: 0 # Uruchom jako root
         fsGroup: 100
 
       containers:
@@ -30,32 +32,32 @@ spec:
           ports:
             - containerPort: 8200
           resources:
-            requests:
-              memory: "512Mi"
-              cpu: "200m"
             limits:
-              memory: "1Gi"
-              cpu: "500m"
-          volumeMounts:
-            # ZMIANA 2: Użycie 'subPath' do montowania pliku konfiguracyjnego
-            - name: vault-config
-              mountPath: /vault/config/vault.hcl
-              subPath: vault.hcl
-            - name: vault-data
-              mountPath: /vault/data
-          # ZMIANA 3: Dodanie capability IPC_LOCK
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+          # ZMIANA 2: Dodanie zmiennej API_ADDR
+          env:
+            - name: VAULT_API_ADDR
+              value: http://vault-0.vault.davtrowebdbvault.svc.cluster.local:8200
           securityContext:
             capabilities:
               add:
                 - IPC_LOCK
+          volumeMounts:
+            # ZMIANA 1: Montujemy cały katalog ConfigMap - eliminuje to problemy z uprawnieniami wewnętrznymi
+            - name: vault-config
+              mountPath: /vault/config
+            - name: vault-data
+              mountPath: /vault/data
 
-      # ZMIANA 4: Dodanie wymaganej sekcji volumes dla Pod (ConfigMap)
       volumes:
         - name: vault-config
           configMap:
             name: vault-config
 
-  # ZMIANA 5: Dodanie wymaganej sekcji volumeClaimTemplates dla StatefulSet (PVC)
   volumeClaimTemplates:
     - metadata:
         name: vault-data
@@ -69,7 +71,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: vault
-  namespace: davtrowebdbvault # Zmienna: ${NAMESPACE}
+  namespace: davtrowebdbvault
   labels:
     app: vault
     environment: development
