@@ -18,17 +18,38 @@ spec:
         app: vault
         environment: development
     spec:
-      # Skrócony czas oczekiwania (Poprawka błędu 'bind: address already in use')
       terminationGracePeriodSeconds: 5
-      # Ustawienie securityContext na poziomie Pod (Poprawka błędu 'chown')
       securityContext:
-        runAsUser: 0 # Uruchom jako root
+        # Konfiguracja pozostaje jako root, ale problem chown został rozwiązany
+        runAsUser: 0
         fsGroup: 100
+
+      # ==========================================================
+      # 🔴 KLUCZOWA ZMIANA: INIT CONTAINER
+      # Kopiuje plik konfiguracyjny z ConfigMap do zapisywalnego PVC
+      # ==========================================================
+      initContainers:
+        - name: copy-config
+          image: busybox:latest
+          command:
+            [
+              "sh",
+              "-c",
+              "cp /tmp/config/vault.hcl /vault/data/config/vault.hcl",
+            ]
+          volumeMounts:
+            # Tymczasowe montowanie ConfigMap
+            - name: vault-config-temp
+              mountPath: /tmp/config
+            # Montowanie zapisywalnego PVC (dane Vault)
+            - name: vault-data
+              mountPath: /vault/data
 
       containers:
         - name: vault
           image: hashicorp/vault:1.15.3
-          args: ["server", "-config=/vault/config/vault.hcl"]
+          # Zmieniony argument - Vault ładuje plik z zapisywalnego PVC
+          args: ["server", "-config=/vault/data/config/vault.hcl"]
           ports:
             - containerPort: 8200
           resources:
@@ -46,18 +67,22 @@ spec:
               add:
                 - IPC_LOCK
           volumeMounts:
-            # Montujemy cały katalog
-            - name: vault-config
-              mountPath: /vault/config
+            # Montujemy tylko wolumen danych PVC
             - name: vault-data
               mountPath: /vault/data
+            # Dostęp do kluczy Kubernetes (opcjonalny, zachowany)
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: kube-api-access-l4nqb # Zmień na nazwę Twojego Service Account Access Volume
+              readOnly: true
 
       volumes:
-        - name: vault-config
+        - name: vault-data
+          persistentVolumeClaim:
+            claimName: vault-data-vault-0
+        # Nowe tymczasowe montowanie ConfigMap (tylko do odczytu)
+        - name: vault-config-temp
           configMap:
             name: vault-config
-            # 🔴 KLUCZOWA POPRAWKA: Ustawienie uprawnień do zapisu (0755)
-            defaultMode: 0755
 
   volumeClaimTemplates:
     - metadata:
