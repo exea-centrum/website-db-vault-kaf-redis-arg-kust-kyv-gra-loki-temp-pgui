@@ -1,4 +1,4 @@
-# website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat - Unified GitOps Stack (Zintegrowane Kafka KRaft i Tracing)
+# website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui - Unified GitOps Stack (Zintegrowane Kafka i Tracing)
 
 🚀 **Kompleksowa aplikacja z pełnym stack'iem DevOps**
 
@@ -7,105 +7,210 @@
 ### Aplikacja
 - **FastAPI** - Strona osobista z ankietą. **Wysyła wiadomości do Kafka i Tracing do Tempo.**
 - **PostgreSQL** - Baza danych
-- **pgAdmin** - Zarządzanie bazą danych
+- **pgAdmin** - Zarządzanie bazą danych PostgreSQL
+- **Adminer** - Uniwersalny panel do baz danych (PostgreSQL, MySQL, itp.)
 
 ### GitOps & Orchestracja
 - **ArgoCD** - Continuous Deployment
 - **Kustomize** - Zarządzanie konfiguracją
-- **Kyverno** - Policy enforcement (Wymaga etykiety `environment: development` w każdym Podzie!)
+- **Kyverno** - Policy enforcement
 
 ### Bezpieczeństwo
-- **Vault** - Zarządzanie sekretami (Konfiguracja naprawiona, aby działać bez `mlock`).
+- **Vault** - Zarządzanie sekretami
 
 ### Messaging & Cache
-- **Kafka (KRaft)** - Kolejka wiadomości. **Usunięto Zookeepera.**
+- **Kafka + KRaft** - Kolejka wiadomości. **Aplikacja FastAPI jest Producentem.**
+- **Kafka UI** - Interfejs graficzny do zarządzania Kafką.
 - **Redis** - Cache i kolejki
+- **Redis Commander** - Interfejs graficzny do zarządzania Redisem.
 
-### Monitoring & Observability
+### Monitoring & Observability (Pełny Trójkąt)
 - **Prometheus** - Metryki
 - **Grafana** - Wizualizacja (Metryki, Logi, Ślady)
 - **Loki** - Logi (Współpracuje z Promtail)
 - **Tempo** - Distributed tracing. **Zbiera ślady OpenTelemetry z FastAPI.**
 - **Promtail** - Agregacja logów
 
-## ⚠️ WAŻNA INFORMACJA O NOWEJ NAZWIE
+## 🚀 Użycie
 
-**Stara nazwa projektu była za długa, co powodowało błędy Ingress.**
-Nowa, bezpieczna nazwa projektu to: `website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat`.
-
-Oznacza to, że musisz **utworzyć nowe repozytorium** na GitHub o nazwie `website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat`.
-
-## 🚀 Finalne Kroki Wdrożenia (KRYTYCZNE)
-
-Musisz usunąć stare zasoby w klastrze i zsynchronizować Git z nową konfiguracją.
-
-### 1. Generowanie i push do nowego repozytorium
-
+### 1. Generowanie manifestów
 ```bash
-# 1. Usuń stary folder, aby zresetować pliki
-rm -rf manifests/ argocd-application.yaml
-
-# 2. Uruchom skrypt (teraz z nową nazwą PROJECT)
+chmod +x unified-deployment.sh
 ./unified-deployment.sh generate
+```
 
-# 3. UTWÓRZ NOWE REPOZYTORIUM na GitHub o nazwie website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
-
-# 4. Inicjalizacja Git i push do nowego repo:
+### 2. Inicjalizacja i push do GitHub
+```bash
 git init
 git add .
-git commit -m "Final fix: Shortened PROJECT name, implemented Kafka KRaft, and fixed all Kyverno/Vault labels."
+git commit -m "Initial commit - unified stack with Kafka and Tempo tracing"
 git branch -M main
-git remote add origin https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git
+git remote add origin https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.git
 git push -u origin main
 ```
 
-### 2. Czyszczenie starych zasobów w Kubernetes
-
-**To jest niezbędne, aby usunąć pętle restartów (Vault) i stare definicje (Kafka/Zookeeper):**
-
+### 3. Weryfikacja lokalnie (opcjonalnie)
 ```bash
-# Usuń StatefulSety i Service, aby zresetować ich stan
-kubectl delete statefulset vault postgres redis kafka -n davtrowebdbvault
-kubectl delete service vault postgres redis kafka -n davtrowebdbvault
-# Usuń wszelkie zasoby PVC, które mogły zostać utworzone przez stare StatefuSet'y
-kubectl delete pvc -l app=vault -n davtrowebdbvault
-kubectl delete pvc -l app=kafka -n davtrowebdbvault
-kubectl delete pvc -l app=postgres -n davtrowebdbvault
-kubectl delete pvc -l app=redis -n davtrowebdbvault
+# Sprawdź czy Kustomize działa
+kubectl kustomize manifests/base
 
-# Usuń stare zasoby ArgoCD
-kubectl delete application website-db-stack -n argocd
+# Sprawdź strukturę
+tree manifests/
 ```
 
-### 3. Deploy i synchronizacja
-
+### 4. Deploy z ArgoCD
 ```bash
-# 1. Zastosuj nową Application Defintion
+# Upewnij się że ArgoCD jest zainstalowany
+kubectl get namespace argocd
+
+# Zastosuj Application manifest
 kubectl apply -f argocd-application.yaml
 
-# 2. Wymuś odświeżenie i synchronizację w ArgoCD
-argocd app sync website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat --refresh --prune
+# Sprawdź status
+kubectl get applications -n argocd
+kubectl describe application website-db-stack -n argocd
 
-# 3. Zaktualizuj plik /etc/hosts na Twoim komputerze:
-# (Zastąp XXX.XXX.XXX.XXX adresem IP Twojego Ingress Controller'a)
-XXX.XXX.XXX.XXX app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
-XXX.XXX.XXX.XXX pgadmin.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
-XXX.XXX.XXX.XXX grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
+# Zobacz logi sync
+kubectl logs -n argocd -l app.kubernetes.io/name=argocd-application-controller
 ```
 
-## 🌐 Dostęp
+### 5. Debug jeśli są problemy
+```bash
+# Sprawdź czy repo jest dostępne dla ArgoCD
+argocd repo list
 
-- **Aplikacja**: http://app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
-- **pgAdmin**: http://pgadmin.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local (admin@admin.com / admin)
-- **Grafana**: http://grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local (admin / admin)
-- **Vault**: Dostęp klastrowy (port 8200)
+# Dodaj repo jeśli nie ma
+argocd repo add https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.git
 
-## 🏗️ Architektura
-(Skrócona)
+# Sprawdź czy manifesty są poprawne
+kubectl kustomize manifests/base | kubectl apply --dry-run=client -f -
 ```
-FastAPI ─┬─> PostgreSQL
-         ├─> Kafka (KRaft)
-         ├─> Tempo (Tracing)
-         ├─> Prometheus (Metrics)
-         └─> Grafana/Loki
+
+## ⚠️ Typowe problemy
+
+### "app path does not exist"
+**Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna.
+
+**Rozwiązanie**:
+1. Upewnij się że zrobiłeś `git push` po generowaniu
+2. Sprawdź czy folder `manifests/base/` istnieje w repo na GitHub
+3. Sprawdź czy plik `manifests/base/kustomization.yaml` jest dostępny
+
+### "Unable to generate manifests"
+**Przyczyna**: Błąd w kustomization.yaml lub brakujący plik.
+
+**Rozwiązanie**:
+```bash
+# Test lokalny
+kubectl kustomize manifests/base
+
+# Sprawdź czy wszystkie pliki istnieją
+ls -la manifests/base/
 ```
+
+### ArgoCD nie widzi repo
+**Rozwiązanie**:
+```bash
+# Dodaj credentials dla prywatnego repo
+kubectl create secret generic repo-creds \
+  --from-literal=url=https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.git \
+  --from-literal=password=YOUR_GITHUB_TOKEN \
+  --from-literal=username=YOUR_GITHUB_USERNAME \
+  -n argocd
+```
+
+## 🌐 Dostęp (Host-Based Routing)
+
+**Wszystkie adresy wymagają ustawienia lokalnego rekordu DNS lub wpisu w /etc/hosts, kierującego na IP kontrolera Ingress.**
+
+- **Aplikacja**: http://app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local
+- **pgAdmin**: http://pgadmin.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local (Email: admin@admin.com / Hasło: admin)
+- **Adminer**: http://adminer.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local (Port: 8080)
+- **Kafka UI**: http://kafka-ui.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local (Port: 8080)
+- **Redis Commander (UI)**: http://redis-ui.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local (Port: 8081, Użytkownik: admin / Hasło: admin)
+- **Grafana**: http://grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local (Użytkownik: admin / Hasło: admin)
+- **Prometheus**: http://prometheus.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local
+- **Vault**: http://vault.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local
+- **Tempo**: http://tempo.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local
+
+## 📊 Baza danych
+
+### Tabele:
+- `survey_responses` - Odpowiedzi z ankiety
+- `page_visits` - Statystyki odwiedzin
+- `contact_messages` - Wiadomości kontaktowe
+
+## 🔐 Sekretna konfiguracja
+
+### GitHub Secrets wymagane:
+- `GHCR_PAT` - Personal Access Token dla GitHub Container Registry
+
+## 📦 Namespace
+`davtrowebdbvault`
+
+## 🏗️ Architektura (Zintegrowana)
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    ArgoCD                           │
+│              (Continuous Deployment)                │
+└──────────────────┬──────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│              Kubernetes Cluster                     │
+│                                                     │
+│  ┌──────────────┐  ┌──────────────┐               │
+│  │   FastAPI    │  │  PostgreSQL  │               │
+│  │   Website    │──│   Database   │               │
+│  └──────────────┘  └──────────────┘               │
+│         │ Tracing (Tempo)                           │
+│         ├────────────┬─────────────┬───────────────┤
+│         ▼            ▼             ▼               ▼
+│  ┌──────────┐  ┌─────────┐  ┌─────────┐    ┌──────────┐
+│  │  Redis   │  │  Kafka  │  │  Vault  │    │ pgAdmin  │
+│  └──────────┘  └─────────┘  └─────────┘    └──────────┘
+│  ┌──────────┐  ┌─────────┐    ┌──────────┐    │
+│  │ Redis UI │  │Kafka UI │    │ Adminer  │    │
+│  └──────────┘  └─────────┘    └──────────┘    │
+│  ┌─────────────────────────────────────────────┐  │
+│  │         Observability Stack                 │  │
+│  │  ┌──────────┐ ┌─────────┐ ┌──────────┐    │  │
+│  │  │Prometheus│ │ Grafana │ │   Loki   │    │  │
+│  │  └──────────┘ └─────────┘ └──────────┘    │  │
+│  │  ┌──────────┐ ┌─────────┐                 │  │
+│  │  │  Tempo   │ │Promtail │                 │  │
+│  │  └──────────┘ └─────────┘                 │  │
+│  └─────────────────────────────────────────────┘  │
+│                                                     │
+│  ┌─────────────────────────────────────────────┐  │
+│  │              Kyverno Policies               │  │
+│  │         (Policy Enforcement)                │  │
+│  └─────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+```
+
+## 🛠️ Rozwój
+
+### Struktura projektu:
+```
+.
+├── app/
+│   ├── main.py              # FastAPI (Producent Kafka, OpenTelemetry Tracing)
+│   ├── requirements.txt     # Zależności Python (+kafka-python, +opentelemetry)
+│   └── templates/
+│       └── index.html       # Frontend
+├── manifests/
+│   └── base/               # Manifesty Kubernetes (Deployment ma Env Vars dla Kafka/Tempo)
+│       ├── *.yaml
+│       └── kustomization.yaml
+├── .github/
+│   └── workflows/
+│       └── ci.yml          # GitHub Actions
+├── Dockerfile
+└── unified-deployment.sh   # Ten skrypt
+```
+
+## 📝 Licencja
+
+MIT License - Dawid Trojanowski © 2025

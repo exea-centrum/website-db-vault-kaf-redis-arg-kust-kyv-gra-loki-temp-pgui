@@ -1,27 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+  name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
   namespace: davtrowebdbvault
   labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
     environment: development
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+      app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
   template:
     metadata:
       labels:
-        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
         environment: development # KLUCZOWE DLA KYVERNO
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
-      serviceAccountName: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+      serviceAccountName: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
       initContainers:
       - name: wait-for-db
         image: postgres:14
@@ -44,21 +44,21 @@ spec:
               key: postgres-password
       containers:
       - name: app
-        image: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat:latest
+        image: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui:latest
         ports:
         - containerPort: 8000
         env:
         - name: DATABASE_URL
           valueFrom:
             configMapKeyRef:
-              name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-config
+              name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui-config
               key: DATABASE_URL
         # KONFIGURACJA KAFKA (KRaft)
         - name: KAFKA_BOOTSTRAP_SERVERS
           value: kafka:9092
         # KONFIGURACJA TRACINGU DLA TEMPO (OTLP)
         - name: OTEL_SERVICE_NAME
-          value: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat-fastapi
+          value: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui-fastapi
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://tempo:4317
         - name: OTEL_EXPORTER_OTLP_PROTOCOL

@@ -5,7 +5,7 @@ set -euo pipefail
 # Generates FastAPI app + Kubernetes manifests with ArgoCD, Vault, Postgres, Redis, Kafka (KRaft), Grafana, Prometheus, Loki, Tempo, Kyverno
 
 # KRÓTSZA NAZWA PROJEKTU (NAPRAWA BŁĘDU INGRESS)
-PROJECT="website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat" 
+PROJECT="website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui" 
 NAMESPACE="davtrowebdbvault"
 ORG="exea-centrum"
 REGISTRY="ghcr.io/${ORG}/${PROJECT}"
@@ -691,16 +691,18 @@ EOF
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${PROJECT}
+  name: ${PROJECT}-ui-ingress
   namespace: ${NAMESPACE}
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
-  labels: # Dodano etykiety
+    # nginx.ingress.kubernetes.io/ssl-redirect: "false" # Opcjonalne
+  labels: 
     app: ${PROJECT}
     environment: development
 spec:
   rules:
-  - host: app.${PROJECT}.local # Uproszczona nazwa hosta
+  # 1. APLIKACJA GŁÓWNA
+  - host: app.${PROJECT}.local
     http:
       paths:
       - path: /
@@ -710,6 +712,8 @@ spec:
             name: ${PROJECT}
             port:
               number: 80
+              
+  # 2. PGADMIN
   - host: pgadmin.${PROJECT}.local
     http:
       paths:
@@ -719,7 +723,45 @@ spec:
           service:
             name: pgadmin
             port:
-              number: 80
+              number: 80 # pgadmin service port
+              
+  # 3. ADMINER
+  - host: adminer.${PROJECT}.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: adminer
+            port:
+              number: 8080 # adminer service port
+              
+  # 4. KAFKA UI (Kafka-UI)
+  - host: kafka-ui.${PROJECT}.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kafka-ui
+            port:
+              number: 8080 # kafka-ui service port
+              
+  # 5. REDIS COMMANDER (UI)
+  - host: redis-ui.${PROJECT}.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: redis-commander
+            port:
+              number: 8081 # redis-commander service port
+              
+  # 6. GRAFANA
   - host: grafana.${PROJECT}.local
     http:
       paths:
@@ -729,7 +771,55 @@ spec:
           service:
             name: grafana
             port:
-              number: 3000
+              number: 3000 # grafana service port
+              
+  # 7. PROMETHEUS
+  - host: prometheus.${PROJECT}.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus
+            port:
+              number: 9090 # prometheus service port
+              
+  # 8. LOKI
+  - host: loki.${PROJECT}.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: loki
+            port:
+              number: 3100 # loki service port
+              
+  # 9. VAULT
+  - host: vault.${PROJECT}.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vault
+            port:
+              number: 8200 # vault service port
+              
+  # 10. TEMPO (UI/Query Frontend)
+  - host: tempo.${PROJECT}.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: tempo
+            port:
+              number: 3200 # tempo service port
 EOF
 }
 
@@ -896,6 +986,62 @@ EOF
 }
 
 # ==============================
+# ADMINER (NOWA FUNKCJA)
+# ==============================
+generate_adminer(){
+  info "Generowanie Adminer..."
+  cat > "${BASE_DIR}/adminer.yaml" <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adminer
+  namespace: ${NAMESPACE}
+  labels:
+    app: adminer
+    environment: development
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adminer
+  template:
+    metadata:
+      labels:
+        app: adminer
+        environment: development
+    spec:
+      containers:
+      - name: adminer
+        image: adminer:latest
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adminer
+  namespace: ${NAMESPACE}
+  labels:
+    app: adminer
+    environment: development
+spec:
+  selector:
+    app: adminer
+  ports:
+  - port: 8080
+    targetPort: 8080
+  type: ClusterIP
+EOF
+}
+
+# ==============================
 # VAULT (Ujednolicono etykiety, stabilna konfiguracja)
 # ==============================
 generate_vault(){
@@ -1041,6 +1187,71 @@ R
 }
 
 # ==============================
+# REDIS COMMANDER (NOWA FUNKCJA)
+# ==============================
+generate_redis_ui(){
+  info "Generowanie Redis Commander (UI)..."
+  cat > "${BASE_DIR}/redis-commander.yaml" <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-commander
+  namespace: ${NAMESPACE}
+  labels:
+    app: redis-commander
+    environment: development
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-commander
+  template:
+    metadata:
+      labels:
+        app: redis-commander
+        environment: development
+    spec:
+      containers:
+      - name: redis-commander
+        image: rediscommander/redis-commander:latest
+        ports:
+        - containerPort: 8081
+        env:
+        # Hosty Redisa: nazwa serwisu Redis i jego port
+        - name: REDIS_HOSTS
+          value: "redis:6379"
+        # Opcjonalne podstawowe zabezpieczenie UI
+        - name: HTTP_USER
+          value: "admin"
+        - name: HTTP_PASSWORD
+          value: "admin"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-commander
+  namespace: ${NAMESPACE}
+  labels:
+    app: redis-commander
+    environment: development
+spec:
+  selector:
+    app: redis-commander
+  ports:
+  - port: 8081
+    targetPort: 8081
+  type: ClusterIP
+EOF
+}
+
+# ==============================
 # KAFKA (NAPRAWA: Wdrożenie Kafka KRaft - bez Zookeepera)
 # ==============================
 generate_kafka(){
@@ -1125,6 +1336,71 @@ spec:
   selector:
     app: kafka
 KAF
+}
+
+# ==============================
+# KAFKA UI (NOWA FUNKCJA)
+# ==============================
+generate_kafka_ui(){
+  info "Generowanie Kafka UI..."
+  cat > "${BASE_DIR}/kafka-ui.yaml" <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+  namespace: ${NAMESPACE}
+  labels:
+    app: kafka-ui
+    environment: development
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-ui
+  template:
+    metadata:
+      labels:
+        app: kafka-ui
+        environment: development
+    spec:
+      containers:
+      - name: kafka-ui
+        image: provectuslabs/kafka-ui:latest
+        ports:
+        - containerPort: 8080
+        env:
+        # Konfiguracja połączenia z klastrem Kafka
+        - name: KAFKA_CLUSTERS_0_NAME
+          value: "local-kafka"
+        - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+          value: "kafka:9092"
+        # Umożliwienie dynamicznej konfiguracji przez UI
+        - name: DYNAMIC_CONFIG_ENABLED
+          value: "true"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui
+  namespace: ${NAMESPACE}
+  labels:
+    app: kafka-ui
+    environment: development
+spec:
+  selector:
+    app: kafka-ui
+  ports:
+  - port: 8080
+    targetPort: 8080
+  type: ClusterIP
+EOF
 }
 
 # ==============================
@@ -1557,44 +1833,6 @@ spec:
 KY
 }
 
-# ==============================
-# ARGOCD APPLICATION (Używa nowej, krótszej nazwy PROJECT)
-# ==============================
-generate_argocd_app(){
-  info "Generowanie ArgoCD Application..."
-  cat > "${BASE_DIR}/argocd-app.yaml" <<'AA'
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: website-db-stack
-  namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git # UŻYWA NOWEJ NAZWY REPO!
-    targetRevision: HEAD
-    path: manifests/base
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: davtrowebdbvault
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - PrunePropagationPolicy=foreground
-      - ServerSideApply=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
-AA
-}
 
 # ==============================
 # STANDALONE ARGOCD APP (do apply z CLI)
@@ -1612,7 +1850,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.git # UŻYWA NOWEJ NAZWY REPO!
+    repoURL: https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.git # UŻYWA NOWEJ NAZWY REPO!
     targetRevision: HEAD
     path: manifests/base
   destination:
@@ -1654,8 +1892,11 @@ resources:
   - vault-deployment.yaml
   - postgres.yaml
   - pgadmin.yaml
+  - adminer.yaml           # DODANO: Adminer
   - redis.yaml
+  - redis-commander.yaml   # DODANO: Redis UI
   - kafka.yaml # Używamy tylko Kafki (KRaft)
+  - kafka-ui.yaml          # DODANO: Kafka UI
   - deployment.yaml
   - service.yaml
   - ingress.yaml
@@ -1679,7 +1920,7 @@ labels:
     managed-by: argocd
 
 images:
-  - name: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
+  - name: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
     newName: ${REGISTRY} # Używamy nowej nazwy rejestru
     newTag: latest
 K
@@ -1691,7 +1932,7 @@ K
 generate_readme(){
   info "Generowanie README.md..."
   cat > "${ROOT_DIR}/README.md" <<MD
-# ${PROJECT} - Unified GitOps Stack (Zintegrowane Kafka KRaft i Tracing)
+# ${PROJECT} - Unified GitOps Stack (Zintegrowane Kafka i Tracing)
 
 🚀 **Kompleksowa aplikacja z pełnym stack'iem DevOps**
 
@@ -1700,108 +1941,213 @@ generate_readme(){
 ### Aplikacja
 - **FastAPI** - Strona osobista z ankietą. **Wysyła wiadomości do Kafka i Tracing do Tempo.**
 - **PostgreSQL** - Baza danych
-- **pgAdmin** - Zarządzanie bazą danych
+- **pgAdmin** - Zarządzanie bazą danych PostgreSQL
+- **Adminer** - Uniwersalny panel do baz danych (PostgreSQL, MySQL, itp.)
 
 ### GitOps & Orchestracja
 - **ArgoCD** - Continuous Deployment
 - **Kustomize** - Zarządzanie konfiguracją
-- **Kyverno** - Policy enforcement (Wymaga etykiety \`environment: development\` w każdym Podzie!)
+- **Kyverno** - Policy enforcement
 
 ### Bezpieczeństwo
-- **Vault** - Zarządzanie sekretami (Konfiguracja naprawiona, aby działać bez \`mlock\`).
+- **Vault** - Zarządzanie sekretami
 
 ### Messaging & Cache
-- **Kafka (KRaft)** - Kolejka wiadomości. **Usunięto Zookeepera.**
+- **Kafka + KRaft** - Kolejka wiadomości. **Aplikacja FastAPI jest Producentem.**
+- **Kafka UI** - Interfejs graficzny do zarządzania Kafką.
 - **Redis** - Cache i kolejki
+- **Redis Commander** - Interfejs graficzny do zarządzania Redisem.
 
-### Monitoring & Observability
+### Monitoring & Observability (Pełny Trójkąt)
 - **Prometheus** - Metryki
 - **Grafana** - Wizualizacja (Metryki, Logi, Ślady)
 - **Loki** - Logi (Współpracuje z Promtail)
 - **Tempo** - Distributed tracing. **Zbiera ślady OpenTelemetry z FastAPI.**
 - **Promtail** - Agregacja logów
 
-## ⚠️ WAŻNA INFORMACJA O NOWEJ NAZWIE
+## 🚀 Użycie
 
-**Stara nazwa projektu była za długa, co powodowało błędy Ingress.**
-Nowa, bezpieczna nazwa projektu to: \`${PROJECT}\`.
-
-Oznacza to, że musisz **utworzyć nowe repozytorium** na GitHub o nazwie \`${PROJECT}\`.
-
-## 🚀 Finalne Kroki Wdrożenia (KRYTYCZNE)
-
-Musisz usunąć stare zasoby w klastrze i zsynchronizować Git z nową konfiguracją.
-
-### 1. Generowanie i push do nowego repozytorium
-
+### 1. Generowanie manifestów
 \`\`\`bash
-# 1. Usuń stary folder, aby zresetować pliki
-rm -rf manifests/ argocd-application.yaml
-
-# 2. Uruchom skrypt (teraz z nową nazwą PROJECT)
+chmod +x unified-deployment.sh
 ./unified-deployment.sh generate
+\`\`\`
 
-# 3. UTWÓRZ NOWE REPOZYTORIUM na GitHub o nazwie website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
-
-# 4. Inicjalizacja Git i push do nowego repo:
+### 2. Inicjalizacja i push do GitHub
+\`\`\`bash
 git init
 git add .
-git commit -m "Final fix: Shortened PROJECT name, implemented Kafka KRaft, and fixed all Kyverno/Vault labels."
+git commit -m "Initial commit - unified stack with Kafka and Tempo tracing"
 git branch -M main
 git remote add origin ${REPO_URL}
 git push -u origin main
 \`\`\`
 
-### 2. Czyszczenie starych zasobów w Kubernetes
-
-**To jest niezbędne, aby usunąć pętle restartów (Vault) i stare definicje (Kafka/Zookeeper):**
-
+### 3. Weryfikacja lokalnie (opcjonalnie)
 \`\`\`bash
-# Usuń StatefulSety i Service, aby zresetować ich stan
-kubectl delete statefulset vault postgres redis kafka -n davtrowebdbvault
-kubectl delete service vault postgres redis kafka -n davtrowebdbvault
-# Usuń wszelkie zasoby PVC, które mogły zostać utworzone przez stare StatefuSet'y
-kubectl delete pvc -l app=vault -n davtrowebdbvault
-kubectl delete pvc -l app=kafka -n davtrowebdbvault
-kubectl delete pvc -l app=postgres -n davtrowebdbvault
-kubectl delete pvc -l app=redis -n davtrowebdbvault
+# Sprawdź czy Kustomize działa
+kubectl kustomize manifests/base
 
-# Usuń stare zasoby ArgoCD
-kubectl delete application website-db-stack -n argocd
+# Sprawdź strukturę
+tree manifests/
 \`\`\`
 
-### 3. Deploy i synchronizacja
-
+### 4. Deploy z ArgoCD
 \`\`\`bash
-# 1. Zastosuj nową Application Defintion
+# Upewnij się że ArgoCD jest zainstalowany
+kubectl get namespace argocd
+
+# Zastosuj Application manifest
 kubectl apply -f argocd-application.yaml
 
-# 2. Wymuś odświeżenie i synchronizację w ArgoCD
-argocd app sync website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat --refresh --prune
+# Sprawdź status
+kubectl get applications -n argocd
+kubectl describe application website-db-stack -n argocd
 
-# 3. Zaktualizuj plik /etc/hosts na Twoim komputerze:
-# (Zastąp XXX.XXX.XXX.XXX adresem IP Twojego Ingress Controller'a)
-XXX.XXX.XXX.XXX app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
-XXX.XXX.XXX.XXX pgadmin.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
-XXX.XXX.XXX.XXX grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat.local
+# Zobacz logi sync
+kubectl logs -n argocd -l app.kubernetes.io/name=argocd-application-controller
 \`\`\`
 
-## 🌐 Dostęp
+### 5. Debug jeśli są problemy
+\`\`\`bash
+# Sprawdź czy repo jest dostępne dla ArgoCD
+argocd repo list
+
+# Dodaj repo jeśli nie ma
+argocd repo add ${REPO_URL}
+
+# Sprawdź czy manifesty są poprawne
+kubectl kustomize manifests/base | kubectl apply --dry-run=client -f -
+\`\`\`
+
+## ⚠️ Typowe problemy
+
+### "app path does not exist"
+**Przyczyna**: Manifesty nie zostały jeszcze wypushowane do repo lub ścieżka jest błędna.
+
+**Rozwiązanie**:
+1. Upewnij się że zrobiłeś \`git push\` po generowaniu
+2. Sprawdź czy folder \`manifests/base/\` istnieje w repo na GitHub
+3. Sprawdź czy plik \`manifests/base/kustomization.yaml\` jest dostępny
+
+### "Unable to generate manifests"
+**Przyczyna**: Błąd w kustomization.yaml lub brakujący plik.
+
+**Rozwiązanie**:
+\`\`\`bash
+# Test lokalny
+kubectl kustomize manifests/base
+
+# Sprawdź czy wszystkie pliki istnieją
+ls -la manifests/base/
+\`\`\`
+
+### ArgoCD nie widzi repo
+**Rozwiązanie**:
+\`\`\`bash
+# Dodaj credentials dla prywatnego repo
+kubectl create secret generic repo-creds \\
+  --from-literal=url=${REPO_URL} \\
+  --from-literal=password=YOUR_GITHUB_TOKEN \\
+  --from-literal=username=YOUR_GITHUB_USERNAME \\
+  -n argocd
+\`\`\`
+
+## 🌐 Dostęp (Host-Based Routing)
+
+**Wszystkie adresy wymagają ustawienia lokalnego rekordu DNS lub wpisu w /etc/hosts, kierującego na IP kontrolera Ingress.**
 
 - **Aplikacja**: http://app.${PROJECT}.local
-- **pgAdmin**: http://pgadmin.${PROJECT}.local (admin@admin.com / admin)
-- **Grafana**: http://grafana.${PROJECT}.local (admin / admin)
-- **Vault**: Dostęp klastrowy (port 8200)
+- **pgAdmin**: http://pgadmin.${PROJECT}.local (Email: admin@admin.com / Hasło: admin)
+- **Adminer**: http://adminer.${PROJECT}.local (Port: 8080)
+- **Kafka UI**: http://kafka-ui.${PROJECT}.local (Port: 8080)
+- **Redis Commander (UI)**: http://redis-ui.${PROJECT}.local (Port: 8081, Użytkownik: admin / Hasło: admin)
+- **Grafana**: http://grafana.${PROJECT}.local (Użytkownik: admin / Hasło: admin)
+- **Prometheus**: http://prometheus.${PROJECT}.local
+- **Vault**: http://vault.${PROJECT}.local
+- **Tempo**: http://tempo.${PROJECT}.local
 
-## 🏗️ Architektura
-(Skrócona)
+## 📊 Baza danych
+
+### Tabele:
+- \`survey_responses\` - Odpowiedzi z ankiety
+- \`page_visits\` - Statystyki odwiedzin
+- \`contact_messages\` - Wiadomości kontaktowe
+
+## 🔐 Sekretna konfiguracja
+
+### GitHub Secrets wymagane:
+- \`GHCR_PAT\` - Personal Access Token dla GitHub Container Registry
+
+## 📦 Namespace
+\`${NAMESPACE}\`
+
+## 🏗️ Architektura (Zintegrowana)
+
 \`\`\`
-FastAPI ─┬─> PostgreSQL
-         ├─> Kafka (KRaft)
-         ├─> Tempo (Tracing)
-         ├─> Prometheus (Metrics)
-         └─> Grafana/Loki
+┌─────────────────────────────────────────────────────┐
+│                    ArgoCD                           │
+│              (Continuous Deployment)                │
+└──────────────────┬──────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│              Kubernetes Cluster                     │
+│                                                     │
+│  ┌──────────────┐  ┌──────────────┐               │
+│  │   FastAPI    │  │  PostgreSQL  │               │
+│  │   Website    │──│   Database   │               │
+│  └──────────────┘  └──────────────┘               │
+│         │ Tracing (Tempo)                           │
+│         ├────────────┬─────────────┬───────────────┤
+│         ▼            ▼             ▼               ▼
+│  ┌──────────┐  ┌─────────┐  ┌─────────┐    ┌──────────┐
+│  │  Redis   │  │  Kafka  │  │  Vault  │    │ pgAdmin  │
+│  └──────────┘  └─────────┘  └─────────┘    └──────────┘
+│  ┌──────────┐  ┌─────────┐    ┌──────────┐    │
+│  │ Redis UI │  │Kafka UI │    │ Adminer  │    │
+│  └──────────┘  └─────────┘    └──────────┘    │
+│  ┌─────────────────────────────────────────────┐  │
+│  │         Observability Stack                 │  │
+│  │  ┌──────────┐ ┌─────────┐ ┌──────────┐    │  │
+│  │  │Prometheus│ │ Grafana │ │   Loki   │    │  │
+│  │  └──────────┘ └─────────┘ └──────────┘    │  │
+│  │  ┌──────────┐ ┌─────────┐                 │  │
+│  │  │  Tempo   │ │Promtail │                 │  │
+│  │  └──────────┘ └─────────┘                 │  │
+│  └─────────────────────────────────────────────┘  │
+│                                                     │
+│  ┌─────────────────────────────────────────────┐  │
+│  │              Kyverno Policies               │  │
+│  │         (Policy Enforcement)                │  │
+│  └─────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
 \`\`\`
+
+## 🛠️ Rozwój
+
+### Struktura projektu:
+\`\`\`
+.
+├── app/
+│   ├── main.py              # FastAPI (Producent Kafka, OpenTelemetry Tracing)
+│   ├── requirements.txt     # Zależności Python (+kafka-python, +opentelemetry)
+│   └── templates/
+│       └── index.html       # Frontend
+├── manifests/
+│   └── base/               # Manifesty Kubernetes (Deployment ma Env Vars dla Kafka/Tempo)
+│       ├── *.yaml
+│       └── kustomization.yaml
+├── .github/
+│   └── workflows/
+│       └── ci.yml          # GitHub Actions
+├── Dockerfile
+└── unified-deployment.sh   # Ten skrypt
+\`\`\`
+
+## 📝 Licencja
+
+MIT License - Dawid Trojanowski © 2025
 MD
 }
 
@@ -1810,6 +2156,7 @@ MD
 # ==============================
 generate_all(){
   info "🚀 Rozpoczynam generowanie unified stack..."
+  echo ""
   
   generate_structure
   generate_fastapi_app
@@ -1819,25 +2166,82 @@ generate_all(){
   generate_k8s_base
   generate_postgres
   generate_pgadmin
+  generate_adminer         # DODANO ADMINER
   generate_vault
   generate_redis
+  generate_redis_ui        # DODANO REDIS UI
   generate_kafka
+  generate_kafka_ui        # DODANO KAFKA UI
   generate_prometheus
   generate_grafana
   generate_loki
   generate_promtail
   generate_tempo
   generate_kyverno
-  generate_argocd_app
   generate_argocd_standalone
   generate_kustomization
   generate_readme
   
   echo ""
-  info "✅ WSZYSTKO GOTOWE! (Nazwa projektu to teraz: ${PROJECT})"
+  info "✅ WSZYSTKO GOTOWE! (Zintegrowano Kafka i Tracing dla Tempo)"
   echo ""
-  echo "⚠️ PROSZĘ PRZEJDŹ DO SEKCJI '🚀 Finalne Kroki Wdrożenia (KRYTYCZNE)' W README.MD LUB POWYŻEJ"
-  echo "   MUSISZ USUNĄĆ STARE ZASOBY KUBERNETES ORAZ ZROBIĆ PUSH DO NOWEGO REPOZYTORIUM!"
+  echo "📦 Wygenerowano:"
+  echo "   ✓ FastAPI aplikacja w app/ (Producent Kafka, Tracing OTLP)"
+  echo "   ✓ Dockerfile"
+  echo "   ✓ GitHub Actions workflow"
+  echo "   ✓ Kubernetes manifesty w manifests/base/"
+  echo "   ✓ argocd-application.yaml (standalone w root)"
+  echo "   ✓ README.md"
+  echo ""
+  echo "🎯 Komponenty (Zintegrowane):"
+  echo "   ✓ FastAPI + PostgreSQL + pgAdmin + Adminer"
+  echo "   ✓ Vault (secrets management)"
+  echo "   ✓ Redis + Redis Commander (cache + UI)"
+  echo "   ✓ Kafka KRaft + Kafka UI (messaging + UI)"
+  echo "   ✓ Prometheus + Grafana (monitoring)"
+  echo "   ✓ Loki + Promtail (logging)"
+  echo "   ✓ Tempo (tracing, odbiera ślady z FastAPI na porcie 4317)"
+  echo "   ✓ ArgoCD (GitOps)"
+  echo "   ✓ Kyverno (policies)"
+  echo ""
+  echo "🚀 Następne kroki:"
+  echo ""
+  echo "1️⃣ Inicjalizacja Git i push:"
+  echo "   git init"
+  echo "   git add ."
+  echo "   git commit -m 'Initial commit - unified stack with Kafka and Tempo tracing'"
+  echo "   git branch -M main"
+  echo "   git remote add origin ${REPO_URL}"
+  echo "   git push -u origin main"
+  echo ""
+  echo "2️⃣ Weryfikacja struktury:"
+  echo "   tree manifests/"
+  echo ""
+  echo "3️⃣ Test lokalny Kustomize:"
+  echo "   kubectl kustomize manifests/base"
+  echo ""
+  echo "4️⃣ Deploy ArgoCD Application (po push do repo):"
+  echo "   kubectl apply -f argocd-application.yaml"
+  echo ""
+  echo "5️⃣ Sprawdź status w ArgoCD:"
+  echo "   kubectl get applications -n argocd"
+  echo "   kubectl describe application website-db-stack -n argocd"
+  echo ""
+  echo "⚠️  WAŻNE: Upewnij się że:"
+  echo "   ✓ Repozytorium ${REPO_URL} istnieje"
+  echo "   ✓ ArgoCD jest zainstalowany (kubectl get ns argocd)"
+  echo "   ✓ Folder manifests/base/ zawiera wszystkie pliki"
+  echo ""
+  echo "🌐 Dostęp:"
+  echo "   App: http://app.${PROJECT}.local"
+  echo "   pgAdmin: http://pgadmin.${PROJECT}.local"
+  echo "   Adminer: http://adminer.${PROJECT}.local"
+  echo "   Kafka UI: http://kafka-ui.${PROJECT}.local"
+  echo "   Redis Commander: http://redis-ui.${PROJECT}.local"
+  echo "   Grafana: http://grafana.${PROJECT}.local"
+  echo "   Prometheus: http://prometheus.${PROJECT}.local"
+  echo "   Vault: http://vault.${PROJECT}.local"
+  echo "   Tempo: http://tempo.${PROJECT}.local"
   echo ""
 }
 
@@ -1850,12 +2254,15 @@ case "${1:-}" in
     ;;
   help|-h|--help)
     echo "Unified Deployment Script"
+    echo ""
     echo "Usage: $0 generate"
-    exit 0
+    echo ""
+    echo "Generuje kompletny stack z aplikacją FastAPI i infrastrukturą Kubernetes"
     ;;
   *)
     echo "❌ Nieprawidłowa komenda"
     echo "Użyj: $0 generate"
+    echo "Lub: $0 help"
     exit 1
     ;;
 esac

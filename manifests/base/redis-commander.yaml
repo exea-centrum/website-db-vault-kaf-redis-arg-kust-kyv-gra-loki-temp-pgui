@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-commander
+  namespace: davtrowebdbvault
+  labels:
+    app: redis-commander
+    environment: development
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-commander
+  template:
+    metadata:
+      labels:
+        app: redis-commander
+        environment: development
+    spec:
+      containers:
+      - name: redis-commander
+        image: rediscommander/redis-commander:latest
+        ports:
+        - containerPort: 8081
+        env:
+        # Hosty Redisa: nazwa serwisu Redis i jego port
+        - name: REDIS_HOSTS
+          value: "redis:6379"
+        # Opcjonalne podstawowe zabezpieczenie UI
+        - name: HTTP_USER
+          value: "admin"
+        - name: HTTP_PASSWORD
+          value: "admin"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-commander
+  namespace: davtrowebdbvault
+  labels:
+    app: redis-commander
+    environment: development
+spec:
+  selector:
+    app: redis-commander
+  ports:
+  - port: 8081
+    targetPort: 8081
+  type: ClusterIP

@@ -11,8 +11,11 @@ resources:
   - vault-deployment.yaml
   - postgres.yaml
   - pgadmin.yaml
+  - adminer.yaml           # DODANO: Adminer
   - redis.yaml
+  - redis-commander.yaml   # DODANO: Redis UI
   - kafka.yaml # Używamy tylko Kafki (KRaft)
+  - kafka-ui.yaml          # DODANO: Kafka UI
   - deployment.yaml
   - service.yaml
   - ingress.yaml
@@ -36,6 +39,6 @@ labels:
     managed-by: argocd
 
 images:
-  - name: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat
-    newName: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgadm-chat # Używamy nowej nazwy rejestru
+  - name: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    newName: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui # Używamy nowej nazwy rejestru
     newTag: latest
