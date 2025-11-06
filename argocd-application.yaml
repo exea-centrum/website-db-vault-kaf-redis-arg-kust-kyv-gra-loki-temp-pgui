@@ -3,8 +3,6 @@ kind: Application
 metadata:
   name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
   namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
