@@ -20,7 +20,6 @@ spec:
     spec:
       # =================================================================
       # INIT CONTAINER: Formatowanie wolumenu dla trybu KRaft
-      # KLUCZOWA POPRAWKA: Tworzenie pliku kafka.properties w locie
       # =================================================================
       initContainers:
         - name: kafka-storage-format
@@ -28,11 +27,10 @@ spec:
           command: ["/bin/bash", "-c"]
           args:
             - |
-              # 1. Definicja stałego ID klastra (używamy stałej z chatgpt.sh)
               CLUSTER_ID="4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ" 
 
-              # 2. Utworzenie tymczasowego pliku konfiguracyjnego w /tmp/
-              cat <<EOF > /tmp/kafka.properties
+              # 2. Utworzenie tymczasowego pliku konfiguracyjnego w ZAPISYWALNEJ lokalizacji PVC
+              cat <<EOF > /tmp/kraft-storage/kafka.properties 
               node.id=1
               process.roles=controller,broker
               controller.quorum.voters=1@kafka:9093
@@ -44,18 +42,17 @@ spec:
               log.dirs=/tmp/kraft-storage
               EOF
 
-              # 3. Sprawdzenie i formatowanie wolumenu dla KRaft
+              # 3. Sprawdzenie i formatowanie wolumenu dla KRaft (z użyciem pliku z PVC)
               if [ -z "$(ls -A /tmp/kraft-storage)" ]; then
                 echo "Formatting Kafka storage for KRaft with ID: ${CLUSTER_ID}..."
                 /opt/kafka/bin/kafka-storage.sh format \
                   --cluster-id "${CLUSTER_ID}" \
-                  --config /tmp/kafka.properties \
+                  --config /tmp/kraft-storage/kafka.properties \ 
                   --ignore-formatted
               else
                 echo "Kafka storage already formatted. Skipping."
               fi
           env:
-            # Zmienne środowiskowe są potrzebne do poprawnego uruchomienia storage.sh
             - name: KAFKA_CFG_LOG_DIRS
               value: "/tmp/kraft-storage"
           volumeMounts:
@@ -63,19 +60,17 @@ spec:
               mountPath: /tmp/kraft-storage
 
       # =================================================================
-      # GŁÓWNY CONTAINER: Uruchomienie Kafki w trybie KRaft
+      # GŁÓWNY CONTAINER: Uruchomienie Kafki
       # =================================================================
       containers:
         - name: kafka
           image: apache/kafka:3.7.0
-          # Nadal używamy /tmp/kafka.properties w kontenerze głównym.
-          # Obraz apache/kafka:3.7.0 automatycznie generuje ten plik
-          # na podstawie zmiennych KAFKA_CFG_*, więc tutaj jest OK.
+          # Uruchomienie z plikiem, który został utworzony przez initContainer na PVC
           command:
             [
               "/bin/bash",
               "-c",
-              "/opt/kafka/bin/kafka-server-start.sh /tmp/kafka.properties",
+              "/opt/kafka/bin/kafka-server-start.sh /tmp/kraft-storage/kafka.properties",
             ]
           env:
             - name: KAFKA_CFG_NODE_ID
