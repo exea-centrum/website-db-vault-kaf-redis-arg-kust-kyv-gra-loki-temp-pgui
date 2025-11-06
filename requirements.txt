@@ -6,3 +6,4 @@ prometheus-fastapi-instrumentator==5.11.1
 python-multipart==0.0.6
 pydantic==2.5.0
 hvac==1.1.1
+
