@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: kafka
-  namespace: davtrowebdbvault # Zmienna: ${NAMESPACE}
+  namespace: davtrowebdbvault
   labels:
     app: kafka
     environment: development
@@ -20,7 +20,7 @@ spec:
     spec:
       # =================================================================
       # INIT CONTAINER: Formatowanie wolumenu dla trybu KRaft
-      # To jest kluczowe, aby uniknąć błędu "zookeeper.connect"
+      # KLUCZOWA POPRAWKA: Tworzenie pliku kafka.properties w locie
       # =================================================================
       initContainers:
         - name: kafka-storage-format
@@ -28,17 +28,34 @@ spec:
           command: ["/bin/bash", "-c"]
           args:
             - |
-              # Sprawdzenie i formatowanie wolumenu dla KRaft
+              # 1. Definicja stałego ID klastra (używamy stałej z chatgpt.sh)
+              CLUSTER_ID="4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ" 
+
+              # 2. Utworzenie tymczasowego pliku konfiguracyjnego w /tmp/
+              cat <<EOF > /tmp/kafka.properties
+              node.id=1
+              process.roles=controller,broker
+              controller.quorum.voters=1@kafka:9093
+              controller.listener.names=CONTROLLER
+              cluster.id=${CLUSTER_ID}
+              listeners=PLAINTEXT://:9092,CONTROLLER://:9093
+              advertised.listeners=PLAINTEXT://kafka:9092
+              listener.security.protocol.map=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+              log.dirs=/tmp/kraft-storage
+              EOF
+
+              # 3. Sprawdzenie i formatowanie wolumenu dla KRaft
               if [ -z "$(ls -A /tmp/kraft-storage)" ]; then
-                echo "Formatting Kafka storage for KRaft..."
+                echo "Formatting Kafka storage for KRaft with ID: ${CLUSTER_ID}..."
                 /opt/kafka/bin/kafka-storage.sh format \
-                  --cluster-id "4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ" \
+                  --cluster-id "${CLUSTER_ID}" \
                   --config /tmp/kafka.properties \
                   --ignore-formatted
               else
                 echo "Kafka storage already formatted. Skipping."
               fi
           env:
+            # Zmienne środowiskowe są potrzebne do poprawnego uruchomienia storage.sh
             - name: KAFKA_CFG_LOG_DIRS
               value: "/tmp/kraft-storage"
           volumeMounts:
@@ -51,8 +68,9 @@ spec:
       containers:
         - name: kafka
           image: apache/kafka:3.7.0
-          # Jawne uruchomienie serwera Kafka, używając konfiguracji wygenerowanej
-          # ze zmiennych środowiskowych przez skrypt startowy kontenera.
+          # Nadal używamy /tmp/kafka.properties w kontenerze głównym.
+          # Obraz apache/kafka:3.7.0 automatycznie generuje ten plik
+          # na podstawie zmiennych KAFKA_CFG_*, więc tutaj jest OK.
           command:
             [
               "/bin/bash",
@@ -69,7 +87,7 @@ spec:
             - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
               value: "CONTROLLER"
             - name: KAFKA_CFG_CLUSTER_ID
-              value: "4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ" # Zmienna: ${KAFKA_CLUSTER_ID}
+              value: "4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ"
             - name: KAFKA_CFG_LISTENERS
               value: "PLAINTEXT://:9092,CONTROLLER://:9093"
             - name: KAFKA_CFG_ADVERTISED_LISTENERS
@@ -80,7 +98,7 @@ spec:
               value: "/tmp/kraft-storage"
           ports:
             - containerPort: 9092
-            - containerPort: 9093 # Kontroler
+            - containerPort: 9093
           volumeMounts:
             - name: kafka-data
               mountPath: /tmp/kraft-storage
@@ -97,7 +115,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kafka
-  namespace: davtrowebdbvault # Zmienna: ${NAMESPACE}
+  namespace: davtrowebdbvault
   labels:
     app: kafka
     environment: development
