@@ -12,8 +12,10 @@ from typing import List, Dict, Any
 import time
 import json
 
+
 # Kafka imports
 from kafka import KafkaProducer
+
 
 # OpenTelemetry imports
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
