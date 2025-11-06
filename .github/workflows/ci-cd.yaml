@@ -5,9 +5,9 @@ on:
     branches:
       - main
     paths:
-      - "app/**"
-      - "Dockerfile"
-      - "requirements.txt"
+      - 'app/**'
+      - 'Dockerfile'
+      - 'requirements.txt'
 
 jobs:
   build-and-push:
