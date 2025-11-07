@@ -58,7 +58,7 @@ spec:
             - name: APP_NAME
               value: "website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui"
             - name: KAFKA_BOOTSTRAP_SERVERS
-              value: "kafka.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui-ns.svc.cluster.local:9092"
+              value: "kafka.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.svc.cluster.local:9092"
             - name: OTEL_SERVICE_NAME
               value: "website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui-fastapi"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
