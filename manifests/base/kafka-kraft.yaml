@@ -20,35 +20,38 @@ spec:
     spec:
       containers:
         - name: kafka
-          image: bitnami/kafka:3.6.1 # Changed to confirmed available version
-          imagePullPolicy: IfNotPresent # Explicit pull policy
+          image: apache/kafka:3.6.0
           ports:
             - containerPort: 9092
               name: client
             - containerPort: 9093
               name: inter-broker
           env:
-            - name: KAFKA_CFG_NODE_ID
+            # Używamy zmiennych środowiskowych do generowania pliku properties
+            - name: KAFKA_NODE_ID
               value: "1"
-            - name: KAFKA_CFG_PROCESS_ROLES
+            - name: KAFKA_PROCESS_ROLES
               value: "controller,broker"
-            - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
               value: "1@kafka:9093"
-            - name: KAFKA_CFG_LISTENERS
+            - name: KAFKA_LISTENERS
               value: "CLIENT://:9092,INTERNAL://:9093"
-            - name: KAFKA_CFG_ADVERTISED_LISTENERS
+            - name: KAFKA_ADVERTISED_LISTENERS
               value: "CLIENT://kafka:9092,INTERNAL://kafka:9093"
-            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
               value: "CLIENT:PLAINTEXT,INTERNAL:PLAINTEXT"
-            - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
               value: "INTERNAL"
-            - name: KAFKA_CFG_KRAFT_CLUSTER_ID
+            - name: KAFKA_CLUSTER_ID
               value: "4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ"
-            - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
               value: "true"
+            # Dla obrazu Apache Kafka, możesz potrzebować ustawić ścieżkę do katalogu danych
+            - name: KAFKA_LOG_DIRS
+              value: "/kafka/data"
           volumeMounts:
             - name: kafka-data
-              mountPath: /bitnami/kafka/data
+              mountPath: /kafka/data
           resources:
             requests:
               memory: "512Mi"
