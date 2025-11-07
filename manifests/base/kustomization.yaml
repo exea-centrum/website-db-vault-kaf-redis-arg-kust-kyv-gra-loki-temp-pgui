@@ -10,6 +10,7 @@ resources:
   - vault.yaml
   - redis.yaml
   - kafka-kraft.yaml
+  - kafka-ui.yaml
   - prometheus-config.yaml
   - prometheus.yaml
   - grafana-datasource.yaml
