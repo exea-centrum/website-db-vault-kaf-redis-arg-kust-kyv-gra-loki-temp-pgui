@@ -5,9 +5,9 @@ IFS=$'\n\t'
 
 # unified-stack.sh - All-in-one generator
 # Generates:
-#  - app/ (FastAPI main.py, worker.py, templates, requirements)
+#  - app/ (FastAPI main.py, worker.py, templates/index.html, requirements.txt)
 #  - Dockerfile
-#  - .github/workflows/ci-cd.yaml (fixed, working for GHCR + GHCR_PAT)
+#  - .github/workflows/ci-cd.yaml (fixed for GHCR + GHCR_PAT)
 #  - manifests/base/* (app, worker, postgres, pgadmin, vault, redis, redis-insight, kafka, kafka-ui,
 #                       prometheus, grafana, loki, promtail, tempo, ingress, kyverno, kustomization)
 #  - argocd-application.yaml
@@ -16,6 +16,11 @@ IFS=$'\n\t'
 # Usage:
 #   chmod +x unified-stack.sh
 #   ./unified-stack.sh generate
+#
+# Notes:
+#  - Workflow expects secrets.GHCR_PAT to be configured (or change to use GITHUB_TOKEN).
+#  - Vault manifest includes disable_mlock = true to avoid IPC_LOCK issues on some nodes.
+#  - This is a teaching/demo scaffold. Replace credentials and remove dev-mode patterns before production.
 
 PROJECT="website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui"
 NAMESPACE="davtrowebdbvault"
@@ -39,9 +44,11 @@ generate_structure(){
 }
 
 generate_fastapi_app(){
-  info "Writing app files..."
+  info "Generating FastAPI app (main.py, worker.py, templates, requirements)..."
+
   cat > "${APP_DIR}/main.py" <<'PY'
 #!/usr/bin/env python3
+# app/main.py - FastAPI frontend that queues contact messages to Redis
 from fastapi import FastAPI, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -54,49 +61,59 @@ from prometheus_fastapi_instrumentator import Instrumentator
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("fastapi")
 
-app = FastAPI(title="Personal Website")
+app = FastAPI(title="Personal Website - Contact Queue")
 templates = Jinja2Templates(directory="templates")
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-REDIS_HOST = os.getenv("REDIS_HOST","redis")
-REDIS_PORT = int(os.getenv("REDIS_PORT","6379"))
-REDIS_LIST = os.getenv("REDIS_LIST","outgoing_messages")
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_LIST = os.getenv("REDIS_LIST", "outgoing_messages")
 
-CONTACT_PUSHED = Counter("app_contact_pushed_total","Contact messages queued")
+CONTACT_PUSHED = Counter("app_contact_pushed_total", "Number of contact messages pushed to Redis")
 
-def redis_client():
+def get_redis():
     return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 Instrumentator().instrument(app).expose(app)
 
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
+async def homepage(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/api/contact")
-async def contact(email: str = Form(...), message: str = Form(...), id: str = Form(default="")):
-    payload = {"id": id, "email": email, "message": message, "ts": time.time()}
+async def submit_contact(email: str = Form(...), message: str = Form(...), id: str = Form(default="")):
+    payload = {"id": id, "email": email, "message": message, "timestamp": time.time()}
     try:
-        r = redis_client()
+        r = get_redis()
         r.rpush(REDIS_LIST, json.dumps(payload))
         CONTACT_PUSHED.inc()
         logger.info("Queued: %s", payload)
-        return {"status":"queued", "payload": payload}
+        return {"status": "queued", "payload": payload}
     except Exception as e:
-        logger.exception("Failed to enqueue")
-        raise HTTPException(status_code=500, detail="queue error")
+        logger.exception("Failed to queue message")
+        raise HTTPException(status_code=500, detail="Failed to enqueue message")
 
 @app.get("/health")
 async def health():
+    status = {"service": "fastapi", "status": "ok"}
     try:
-        redis_client().ping()
-        return {"status":"ok","redis":"connected"}
+        r = get_redis()
+        r.ping()
+        status["redis"] = "connected"
     except Exception as e:
-        return {"status":"degraded","redis":"disconnected","error": str(e)}
+        status["redis"] = "disconnected"
+        status["error"] = str(e)
+    return status
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
 PY
 
   cat > "${APP_DIR}/worker.py" <<'PY'
 #!/usr/bin/env python3
+# app/worker.py - worker that BLPOP from Redis, publishes to Kafka and stores in Postgres
 import os, json, time, logging
 import redis
 from kafka import KafkaProducer
@@ -105,33 +122,34 @@ import psycopg2
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("worker")
 
-REDIS_HOST = os.getenv("REDIS_HOST","redis")
-REDIS_PORT = int(os.getenv("REDIS_PORT","6379"))
-REDIS_LIST = os.getenv("REDIS_LIST","outgoing_messages")
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_LIST = os.getenv("REDIS_LIST", "outgoing_messages")
 
-KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS","kafka:9092")
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC","survey-topic")
-DATABASE_URL = os.getenv("DATABASE_URL","dbname=webdb user=webuser password=testpassword host=postgres-db")
+KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "survey-topic")
 
-def redis_client():
+DATABASE_URL = os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db")
+
+def get_redis():
     return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
-def kafka_producer():
+def get_kafka():
     try:
         return KafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP.split(','), value_serializer=lambda v: json.dumps(v).encode('utf-8'))
-    except Exception:
-        logger.exception("Kafka init failed")
+    except Exception as e:
+        logger.exception("Kafka init error: %s", e)
         return None
 
 def save_to_db(email, message):
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
-    cur.execute("INSERT INTO contact_messages (email,message) VALUES (%s,%s)", (email, message))
+    cur.execute("INSERT INTO contact_messages (email, message) VALUES (%s, %s)", (email, message))
     conn.commit()
     cur.close()
     conn.close()
 
-def process(item, producer):
+def process_item(item, producer):
     try:
         if producer:
             producer.send(KAFKA_TOPIC, value=item)
@@ -142,21 +160,21 @@ def process(item, producer):
         logger.exception("Processing failed")
 
 def main():
-    r = redis_client()
-    producer = kafka_producer()
-    logger.info("Worker started")
+    r = get_redis()
+    producer = get_kafka()
+    logger.info("Worker started. Listening on Redis list '%s'", REDIS_LIST)
     while True:
         try:
             res = r.blpop(REDIS_LIST, timeout=0)
             if res:
-                _, raw = res
+                _, data = res
                 try:
-                    item = json.loads(raw)
+                    item = json.loads(data)
                 except Exception:
-                    item = {"raw": raw}
-                process(item, producer)
+                    item = {"raw": data}
+                process_item(item, producer)
         except Exception:
-            logger.exception("Worker loop error")
+            logger.exception("Worker loop exception")
             time.sleep(2)
 
 if __name__ == "__main__":
@@ -167,25 +185,38 @@ PY
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Kontakt</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Dawid Trojanowski - Kontakt</title>
+  <style>
+    body{font-family:system-ui,Arial;background:#0b1220;color:#e6eef8;padding:24px}
+    .card{max-width:720px;margin:auto;background:rgba(255,255,255,0.02);padding:18px;border-radius:10px}
+    input,textarea{width:100%;padding:8px;margin:6px 0;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#fff}
+    button{background:#7c3aed;color:#fff;padding:10px 14px;border-radius:8px;border:none;cursor:pointer}
+  </style>
 </head>
 <body>
-  <h1>Kontakt</h1>
-  <form id="contact" method="post" action="/api/contact">
-    <input name="email" placeholder="email" required/><br/>
-    <textarea name="message" placeholder="wiadomość" required></textarea><br/>
-    <input name="id" placeholder="opcjonalne id"/><br/>
-    <button type="submit">Wyślij</button>
-  </form>
+  <div class="card">
+    <h1>Kontakt</h1>
+    <p>Wiadomość trafi do kolejki Redis; worker zapisze do Postgresa i wyśle do Kafki.</p>
+    <form id="contact-form">
+      <input name="email" type="email" placeholder="Twój email" required/>
+      <textarea name="message" rows="5" placeholder="Twoja wiadomość" required></textarea>
+      <input name="id" placeholder="opcjonalne id"/>
+      <button type="submit">Wyślij</button>
+    </form>
+    <div id="result" style="margin-top:12px;color:#bceeae"></div>
+  </div>
   <script>
-    document.getElementById('contact').addEventListener('submit', async e=>{
+    const f = document.getElementById('contact-form'), r = document.getElementById('result');
+    f.addEventListener('submit', async e=>{
       e.preventDefault();
-      const fd = new FormData(e.target);
-      const res = await fetch('/api/contact',{method:'POST',body:fd});
+      const fd = new FormData(f);
+      const res = await fetch('/api/contact', { method: 'POST', body: fd });
       const j = await res.json().catch(()=>({}));
-      alert(JSON.stringify(j));
+      r.textContent = j.status || j.message || JSON.stringify(j);
+      setTimeout(()=>r.textContent = '',5000);
+      f.reset();
     });
   </script>
 </body>
@@ -207,11 +238,11 @@ redis==4.6.0
 REQ
 
   chmod +x "${APP_DIR}/worker.py"
-  info "App files created."
+  info "FastAPI app generated."
 }
 
 generate_dockerfile(){
-  info "Writing Dockerfile..."
+  info "Generating Dockerfile..."
   cat > "${ROOT_DIR}/Dockerfile" <<'DOCK'
 FROM python:3.11-slim-bullseye
 WORKDIR /app
@@ -226,9 +257,10 @@ DOCK
 }
 
 generate_github_actions(){
-  info "Writing .github/workflows/ci-cd.yaml (fixed for GHCR + GHCR_PAT)..."
+  info "Writing GitHub Actions workflow (.github/workflows/ci-cd.yaml)..."
   mkdir_p "$WORKFLOW_DIR"
-  cat > "${WORKFLOW_DIR}/ci-cd.yaml" <<YAML
+  # Use escaped ${{ ... }} sequences so this script writes the intended Actions expressions into the YAML
+  cat > "${WORKFLOW_DIR}/ci-cd.yaml" <<'YAML'
 name: CI/CD Build & Deploy
 
 on:
@@ -237,7 +269,7 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ${REGISTRY}
+  REGISTRY: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
 
 permissions:
   contents: read
@@ -260,12 +292,12 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: \${{ github.actor }}
-          password: \${{ secrets.GHCR_PAT }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Debug: show resolved REGISTRY
         run: |
-          echo "REGISTRY=\${{ env.REGISTRY }}"
+          echo "REGISTRY=${{ env.REGISTRY }}"
           docker --version
 
       - name: Build and push image
@@ -276,16 +308,16 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            \${{ env.REGISTRY }}:latest
-            \${{ env.REGISTRY }}:\${{ github.sha }}
-          cache-from: type=registry,ref=\${{ env.REGISTRY }}:latest
+            ${{ env.REGISTRY }}:latest
+            ${{ env.REGISTRY }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}:latest
           cache-to: type=inline
 YAML
   info "Workflow written."
 }
 
 generate_k8s_manifests(){
-  info "Writing Kubernetes manifests..."
+  info "Generating Kubernetes manifests (manifests/base)..."
   mkdir_p "$BASE_DIR"
 
   # app deployment + service + sa
@@ -323,6 +355,8 @@ spec:
           value: "6379"
         - name: REDIS_LIST
           value: "outgoing_messages"
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka.${NAMESPACE}.svc.cluster.local:9092"
         - name: DATABASE_URL
           value: "dbname=webdb user=webuser password=testpassword host=postgres-db"
         resources:
@@ -332,6 +366,18 @@ spec:
           limits:
             cpu: "500m"
             memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
 ---
 apiVersion: v1
 kind: Service
@@ -354,7 +400,7 @@ metadata:
   namespace: ${NAMESPACE}
 YAML
 
-  # worker
+  # message-processor
   cat > "${BASE_DIR}/message-processor.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -380,7 +426,7 @@ spec:
       containers:
       - name: worker
         image: ${REGISTRY}:latest
-        command: ["python","worker.py"]
+        command: ["python", "worker.py"]
         env:
         - name: REDIS_HOST
           value: "redis"
@@ -498,7 +544,7 @@ spec:
     app: pgadmin
 YAML
 
-  # vault (with disable_mlock and api_addr example)
+  # vault (service + statefulset) - disable_mlock set to true; securityContext adds IPC_LOCK (optional)
   cat > "${BASE_DIR}/vault.yaml" <<YAML
 apiVersion: v1
 kind: Service
@@ -638,7 +684,7 @@ spec:
     app: redis-insight
 YAML
 
-  # kafka-kraft
+  # kafka-kraft (single node)
   cat > "${BASE_DIR}/kafka-kraft.yaml" <<YAML
 apiVersion: v1
 kind: Service
@@ -730,7 +776,7 @@ spec:
     app: kafka-ui
 YAML
 
-  # prometheus
+  # prometheus config + deployment
   cat > "${BASE_DIR}/prometheus-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -789,7 +835,7 @@ spec:
     app: prometheus
 YAML
 
-  # grafana
+  # grafana datasource + deployment
   cat > "${BASE_DIR}/grafana-datasource.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -1066,18 +1112,18 @@ spec:
       selfHeal: true
 YAML
 
-  info "Kubernetes manifests generated."
+  info "Kubernetes manifests written to ${BASE_DIR}."
 }
 
 generate_readme(){
-  info "Writing README.md..."
+  info "Generating README.md..."
   cat > "${ROOT_DIR}/README.md" <<README
 # ${PROJECT} - All-in-one teaching stack
 
 This repository is generated by unified-stack.sh and contains:
 - FastAPI app + worker (app/)
 - Dockerfile
-- K8s manifests (manifests/base/)
+- K8s manifests in manifests/base/
 - GitHub Actions workflow (.github/workflows/ci-cd.yaml)
 - README & ArgoCD application manifest
 
@@ -1092,13 +1138,13 @@ Quickstart:
 
 Notes:
 - Vault runs with disable_mlock=true in manifest to avoid IPC_LOCK issues on some nodes.
-- Replace example passwords and Vault dev-mode with secure secrets in production.
+- Replace example passwords and Vault dev-mode with proper secrets before production.
 README
-  info "README generated."
+  info "README written."
 }
 
 generate_all(){
-  info "Generating project..."
+  info "Starting generation..."
   generate_structure
   generate_fastapi_app
   generate_dockerfile
@@ -1106,8 +1152,8 @@ generate_all(){
   generate_k8s_manifests
   generate_readme
   echo
-  info "✅ Done. Files created under ${ROOT_DIR}"
-  echo "Next: build image (or adjust manifests to use local image), push image, kubectl apply -k manifests/base"
+  info "✅ Generation complete. Files created under: ${ROOT_DIR}"
+  echo "Next: build image -> push -> kubectl apply -k manifests/base"
 }
 
 case "${1:-}" in
