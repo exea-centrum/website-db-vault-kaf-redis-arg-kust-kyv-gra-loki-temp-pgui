@@ -1,31 +1,42 @@
-name: CI/CD Pipeline
+name: CI/CD - Build & Push
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - "app/**"
-      - "Dockerfile"
-      - "requirements.txt"
-      - "manifests/**"
+    branches: [ main ]
+
+# Expand REGISTRY using Actions expressions so buildx receives a valid tag
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry
+      - name: Set up QEMU (optional, helpful for multi-arch)
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_PAT }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Debug: show resolved REGISTRY
+        run: |
+          echo "REGISTRY=${{ env.REGISTRY }}"
+          docker --version
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -33,6 +44,6 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui:latest
-          cache-from: type=registry,ref=ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui:latest
+          tags: ${{ env.REGISTRY }}:latest
+          cache-from: type=registry,ref=${{ env.REGISTRY }}:latest
           cache-to: type=inline
