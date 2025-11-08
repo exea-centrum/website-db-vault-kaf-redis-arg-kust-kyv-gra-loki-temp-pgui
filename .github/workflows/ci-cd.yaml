@@ -4,7 +4,6 @@ on:
   push:
     branches: [ main ]
 
-# Expand REGISTRY using Actions expressions so buildx receives a valid tag
 env:
   REGISTRY: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
 
