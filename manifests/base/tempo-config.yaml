@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: tempo-config
-  namespace: davtrowebdbvault
-data:
-  tempo.yaml: |
-    server:
-      http_listen_port: 3200

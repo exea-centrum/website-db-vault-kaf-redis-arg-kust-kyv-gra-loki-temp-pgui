@@ -3,15 +3,18 @@ set -euo pipefail
 trap 'rc=$?; echo "❌ Error on line ${LINENO} (exit ${rc})"; exit ${rc}' ERR
 IFS=$'\n\t'
 
-# unified-stack.sh - All-in-one generator
-# Generates:
-#  - app/ (FastAPI main.py, worker.py, templates, requirements)
+# unified-stack.sh
+# All-in-one generator for the teaching exercise.
+# Produces:
+#  - app/ (FastAPI main.py, worker.py, templates/index.html, requirements.txt)
 #  - Dockerfile
-#  - .github/workflows/ci-cd.yaml (fixed, working for GHCR + GHCR_PAT)
-#  - manifests/base/* (app, worker, postgres, pgadmin, vault, redis, redis-insight, kafka, kafka-ui,
-#                       prometheus, grafana, loki, promtail, tempo, ingress, kyverno, kustomization)
+#  - .github/workflows/ci-cd.yaml
+#  - manifests/base/* (all listed resources)
 #  - argocd-application.yaml
 #  - README.md
+#
+# IMPORTANT: This script is intended as a generator for local development / teaching.
+# Review all secrets, images and Vault dev-mode before using in any real environment.
 #
 # Usage:
 #   chmod +x unified-stack.sh
@@ -19,8 +22,9 @@ IFS=$'\n\t'
 
 PROJECT="website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui"
 NAMESPACE="davtrowebdbvault"
-REGISTRY="${REGISTRY:-ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui}"
-REPO_URL="${REPO_URL:-https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.git}"
+ORG="${ORG:-exea-centrum}"
+REGISTRY="${REGISTRY:-ghcr.io/${ORG}/${PROJECT}}"
+REPO_URL="${REPO_URL:-https://github.com/${ORG}/${PROJECT}.git}"
 KAFKA_CLUSTER_ID="${KAFKA_CLUSTER_ID:-4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,17 +35,26 @@ BASE_DIR="${MANIFESTS_DIR}/base"
 WORKFLOW_DIR="${ROOT_DIR}/.github/workflows"
 
 info(){ printf "🔧 [unified] %s\n" "$*"; }
+warn(){ printf "⚠️  [unified] %s\n" "$*"; }
 mkdir_p(){ mkdir -p "$@"; }
 
+# --------------------------------------------------
+# Create directory tree
+# --------------------------------------------------
 generate_structure(){
   info "Creating directories..."
   mkdir_p "$APP_DIR" "$TEMPLATES_DIR" "$BASE_DIR" "$WORKFLOW_DIR" "${ROOT_DIR}/static"
 }
 
+# --------------------------------------------------
+# FastAPI app (main + worker + templates + requirements)
+# --------------------------------------------------
 generate_fastapi_app(){
-  info "Writing app files..."
+  info "Generating FastAPI application (main.py, worker.py, templates, requirements)..."
+
   cat > "${APP_DIR}/main.py" <<'PY'
 #!/usr/bin/env python3
+# app/main.py - FastAPI frontend that queues contact messages to Redis
 from fastapi import FastAPI, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -54,49 +67,59 @@ from prometheus_fastapi_instrumentator import Instrumentator
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("fastapi")
 
-app = FastAPI(title="Personal Website")
+app = FastAPI(title="Personal Website - Contact Queue")
 templates = Jinja2Templates(directory="templates")
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-REDIS_HOST = os.getenv("REDIS_HOST","redis")
-REDIS_PORT = int(os.getenv("REDIS_PORT","6379"))
-REDIS_LIST = os.getenv("REDIS_LIST","outgoing_messages")
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_LIST = os.getenv("REDIS_LIST", "outgoing_messages")
 
-CONTACT_PUSHED = Counter("app_contact_pushed_total","Contact messages queued")
+CONTACT_PUSHED = Counter("app_contact_pushed_total", "Number of contact messages pushed to Redis")
 
-def redis_client():
+def get_redis():
     return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 Instrumentator().instrument(app).expose(app)
 
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
+async def homepage(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/api/contact")
-async def contact(email: str = Form(...), message: str = Form(...), id: str = Form(default="")):
-    payload = {"id": id, "email": email, "message": message, "ts": time.time()}
+async def submit_contact(email: str = Form(...), message: str = Form(...), id: str = Form(default="")):
+    payload = {"id": id, "email": email, "message": message, "timestamp": time.time()}
     try:
-        r = redis_client()
+        r = get_redis()
         r.rpush(REDIS_LIST, json.dumps(payload))
         CONTACT_PUSHED.inc()
         logger.info("Queued: %s", payload)
-        return {"status":"queued", "payload": payload}
+        return {"status": "queued", "payload": payload}
     except Exception as e:
-        logger.exception("Failed to enqueue")
-        raise HTTPException(status_code=500, detail="queue error")
+        logger.exception("Failed to queue message")
+        raise HTTPException(status_code=500, detail="Failed to enqueue message")
 
 @app.get("/health")
 async def health():
+    status = {"service": "fastapi", "status": "ok"}
     try:
-        redis_client().ping()
-        return {"status":"ok","redis":"connected"}
+        r = get_redis()
+        r.ping()
+        status["redis"] = "connected"
     except Exception as e:
-        return {"status":"degraded","redis":"disconnected","error": str(e)}
+        status["redis"] = "disconnected"
+        status["error"] = str(e)
+    return status
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT","8000")), reload=False)
 PY
 
   cat > "${APP_DIR}/worker.py" <<'PY'
 #!/usr/bin/env python3
+# app/worker.py - worker that BLPOP from Redis, publishes to Kafka and stores in Postgres
 import os, json, time, logging
 import redis
 from kafka import KafkaProducer
@@ -105,33 +128,34 @@ import psycopg2
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("worker")
 
-REDIS_HOST = os.getenv("REDIS_HOST","redis")
-REDIS_PORT = int(os.getenv("REDIS_PORT","6379"))
-REDIS_LIST = os.getenv("REDIS_LIST","outgoing_messages")
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_LIST = os.getenv("REDIS_LIST", "outgoing_messages")
 
-KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS","kafka:9092")
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC","survey-topic")
-DATABASE_URL = os.getenv("DATABASE_URL","dbname=webdb user=webuser password=testpassword host=postgres-db")
+KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "survey-topic")
 
-def redis_client():
+DATABASE_URL = os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db")
+
+def get_redis():
     return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
-def kafka_producer():
+def get_kafka():
     try:
         return KafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP.split(','), value_serializer=lambda v: json.dumps(v).encode('utf-8'))
-    except Exception:
-        logger.exception("Kafka init failed")
+    except Exception as e:
+        logger.exception("Kafka init error: %s", e)
         return None
 
 def save_to_db(email, message):
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
-    cur.execute("INSERT INTO contact_messages (email,message) VALUES (%s,%s)", (email, message))
+    cur.execute("INSERT INTO contact_messages (email, message) VALUES (%s, %s)", (email, message))
     conn.commit()
     cur.close()
     conn.close()
 
-def process(item, producer):
+def process_item(item, producer):
     try:
         if producer:
             producer.send(KAFKA_TOPIC, value=item)
@@ -142,21 +166,21 @@ def process(item, producer):
         logger.exception("Processing failed")
 
 def main():
-    r = redis_client()
-    producer = kafka_producer()
-    logger.info("Worker started")
+    r = get_redis()
+    producer = get_kafka()
+    logger.info("Worker started. Listening on Redis list '%s'", REDIS_LIST)
     while True:
         try:
             res = r.blpop(REDIS_LIST, timeout=0)
             if res:
-                _, raw = res
+                _, data = res
                 try:
-                    item = json.loads(raw)
+                    item = json.loads(data)
                 except Exception:
-                    item = {"raw": raw}
-                process(item, producer)
+                    item = {"raw": data}
+                process_item(item, producer)
         except Exception:
-            logger.exception("Worker loop error")
+            logger.exception("Worker loop exception")
             time.sleep(2)
 
 if __name__ == "__main__":
@@ -166,29 +190,44 @@ PY
   cat > "${TEMPLATES_DIR}/index.html" <<'HTML'
 <!DOCTYPE html>
 <html lang="pl">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Kontakt</title>
-</head>
-<body>
-  <h1>Kontakt</h1>
-  <form id="contact" method="post" action="/api/contact">
-    <input name="email" placeholder="email" required/><br/>
-    <textarea name="message" placeholder="wiadomość" required></textarea><br/>
-    <input name="id" placeholder="opcjonalne id"/><br/>
-    <button type="submit">Wyślij</button>
-  </form>
-  <script>
-    document.getElementById('contact').addEventListener('submit', async e=>{
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const res = await fetch('/api/contact',{method:'POST',body:fd});
-      const j = await res.json().catch(()=>({}));
-      alert(JSON.stringify(j));
-    });
-  </script>
-</body>
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>Dawid Trojanowski - Kontakt</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body { font-family: system-ui, sans-serif; background: radial-gradient(circle at 10% 20%, #1e293b, #0f172a); color:#e6eef8; padding:24px; }
+      .card { background: rgba(255,255,255,0.03); padding:20px; border-radius:12px; max-width:700px; margin:auto; }
+      input, textarea { width:100%; padding:10px; margin-bottom:8px; border-radius:6px; border:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.02); color:white; }
+      button { background:#7c3aed; color:white; padding:10px 14px; border-radius:8px; border:none; cursor:pointer; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Dawid Trojanowski — Kontakt</h1>
+      <p>Wypełnij formularz, wiadomość trafi do kolejki Redis, worker zapisze do bazy i wyśle do Kafki.</p>
+      <form id="contact-form">
+        <input name="email" type="email" placeholder="Twój email" required/>
+        <textarea name="message" rows="6" placeholder="Twoja wiadomość" required></textarea>
+        <input name="id" placeholder="opcjonalne id"/>
+        <button type="submit">Wyślij</button>
+      </form>
+      <div id="result" style="margin-top:12px;color:#c7f9cc"></div>
+    </div>
+    <script>
+      const form = document.getElementById('contact-form');
+      const result = document.getElementById('result');
+      form.addEventListener('submit', async e => {
+        e.preventDefault();
+        const fd = new FormData(form);
+        const r = await fetch('/api/contact', { method: 'POST', body: fd });
+        const j = await r.json().catch(()=>({}));
+        result.textContent = j.message || j.status || JSON.stringify(j);
+        setTimeout(()=> result.textContent = '', 5000);
+        form.reset();
+      });
+    </script>
+  </body>
 </html>
 HTML
 
@@ -207,85 +246,79 @@ redis==4.6.0
 REQ
 
   chmod +x "${APP_DIR}/worker.py"
-  info "App files created."
+  info "App files written."
 }
 
+# --------------------------------------------------
+# Dockerfile
+# --------------------------------------------------
 generate_dockerfile(){
-  info "Writing Dockerfile..."
+  info "Generating Dockerfile..."
   cat > "${ROOT_DIR}/Dockerfile" <<'DOCK'
+# Dockerfile for FastAPI app + worker (single image for both)
 FROM python:3.11-slim-bullseye
+
 WORKDIR /app
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
 COPY app/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
 COPY app/ /app/
+
+# expose app port
 EXPOSE 8000
+
+# default run the web app; worker runs via k8s command override
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 DOCK
   info "Dockerfile written."
 }
 
+# --------------------------------------------------
+# GitHub Actions Workflow
+# --------------------------------------------------
 generate_github_actions(){
-  info "Writing .github/workflows/ci-cd.yaml (fixed for GHCR + GHCR_PAT)..."
+  info "Generating GitHub Actions workflow..."
   mkdir_p "$WORKFLOW_DIR"
-  cat > "${WORKFLOW_DIR}/ci-cd.yaml" <<YAML
-name: CI/CD Build & Deploy
+  cat > "${WORKFLOW_DIR}/ci-cd.yaml" <<'YAML'
+name: CI/CD - Build & Push
 
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch:
-
-env:
-  REGISTRY: ${REGISTRY}
-
-permissions:
-  contents: read
-  packages: write
+    branches: [ main ]
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v4
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: \${{ github.actor }}
-          password: \${{ secrets.GHCR_PAT }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Debug: show resolved REGISTRY
-        run: |
-          echo "REGISTRY=\${{ env.REGISTRY }}"
-          docker --version
-
-      - name: Build and push image
+      - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           push: true
-          platforms: linux/amd64
-          tags: |
-            \${{ env.REGISTRY }}:latest
-            \${{ env.REGISTRY }}:\${{ github.sha }}
-          cache-from: type=registry,ref=\${{ env.REGISTRY }}:latest
-          cache-to: type=inline
+          tags: ${REGISTRY}:latest
 YAML
   info "Workflow written."
 }
 
+# --------------------------------------------------
+# Kubernetes manifests (full set)
+# --------------------------------------------------
 generate_k8s_manifests(){
-  info "Writing Kubernetes manifests..."
+  info "Generating Kubernetes manifests in ${BASE_DIR}..."
   mkdir_p "$BASE_DIR"
 
   # app deployment + service + sa
@@ -309,6 +342,10 @@ spec:
       labels:
         app: ${PROJECT}
         component: fastapi
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "web-app-role"
+        vault.hashicorp.com/agent-inject-secret-db-creds: "secret/data/database/postgres"
     spec:
       serviceAccountName: fastapi-sa
       containers:
@@ -323,6 +360,8 @@ spec:
           value: "6379"
         - name: REDIS_LIST
           value: "outgoing_messages"
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka.${NAMESPACE}.svc.cluster.local:9092"
         - name: DATABASE_URL
           value: "dbname=webdb user=webuser password=testpassword host=postgres-db"
         resources:
@@ -332,12 +371,27 @@ spec:
           limits:
             cpu: "500m"
             memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: fastapi-web-service
   namespace: ${NAMESPACE}
+  labels:
+    app: ${PROJECT}
+    component: fastapi
 spec:
   type: ClusterIP
   ports:
@@ -352,9 +406,12 @@ kind: ServiceAccount
 metadata:
   name: fastapi-sa
   namespace: ${NAMESPACE}
+  labels:
+    app: ${PROJECT}
+    component: fastapi
 YAML
 
-  # worker
+  # message processor (worker) deployment
   cat > "${BASE_DIR}/message-processor.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -380,7 +437,7 @@ spec:
       containers:
       - name: worker
         image: ${REGISTRY}:latest
-        command: ["python","worker.py"]
+        command: ["python", "worker.py"]
         env:
         - name: REDIS_HOST
           value: "redis"
@@ -401,17 +458,20 @@ spec:
             memory: "512Mi"
 YAML
 
-  # postgres
+  # postgres statefulset + service
   cat > "${BASE_DIR}/postgres-db.yaml" <<YAML
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres-db
   namespace: ${NAMESPACE}
+  labels:
+    app: ${PROJECT}
+    component: postgres
 spec:
   ports:
-  - port: 5432
-    name: postgres
+    - port: 5432
+      name: postgres
   selector:
     app: ${PROJECT}
     component: postgres
@@ -422,6 +482,9 @@ kind: StatefulSet
 metadata:
   name: postgres-db
   namespace: ${NAMESPACE}
+  labels:
+    app: ${PROJECT}
+    component: postgres
 spec:
   serviceName: postgres-db
   replicas: 1
@@ -438,6 +501,8 @@ spec:
       containers:
       - name: postgres
         image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
         env:
         - name: POSTGRES_USER
           value: "webuser"
@@ -465,6 +530,9 @@ kind: Deployment
 metadata:
   name: pgadmin
   namespace: ${NAMESPACE}
+  labels:
+    app: ${PROJECT}
+    component: pgadmin
 spec:
   replicas: 1
   selector:
@@ -489,6 +557,9 @@ kind: Service
 metadata:
   name: pgadmin-service
   namespace: ${NAMESPACE}
+  labels:
+    app: ${PROJECT}
+    component: pgadmin
 spec:
   type: ClusterIP
   ports:
@@ -498,13 +569,25 @@ spec:
     app: pgadmin
 YAML
 
-  # vault (with disable_mlock and api_addr example)
+  # vault (dev local demo)
   cat > "${BASE_DIR}/vault.yaml" <<YAML
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-sa
+  namespace: ${NAMESPACE}
+  labels:
+    app: ${PROJECT}
+    component: vault
+---
 apiVersion: v1
 kind: Service
 metadata:
   name: vault
   namespace: ${NAMESPACE}
+  labels:
+    app: ${PROJECT}
+    component: vault
 spec:
   clusterIP: None
   ports:
@@ -519,6 +602,9 @@ kind: StatefulSet
 metadata:
   name: vault
   namespace: ${NAMESPACE}
+  labels:
+    app: ${PROJECT}
+    component: vault
 spec:
   serviceName: vault
   replicas: 1
@@ -541,18 +627,9 @@ spec:
         env:
         - name: VAULT_LOCAL_CONFIG
           value: |
-            listener "tcp" {
-              address = "0.0.0.0:8200"
-              tls_disable = "true"
-            }
-            storage "file" {
-              path = "/vault/file"
-            }
-            disable_mlock = true
+            listener "tcp" { address = "0.0.0.0:8200" tls_disable = "true" }
+            storage "file" { path = "/vault/file" }
             ui = true
-        securityContext:
-          capabilities:
-            add: ["IPC_LOCK"]
         volumeMounts:
         - name: vault-data
           mountPath: /vault/file
@@ -566,13 +643,16 @@ spec:
           storage: 1Gi
 YAML
 
-  # redis + redis-insight
+  # redis + redis-insight (UI)
   cat > "${BASE_DIR}/redis.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: redis
   namespace: ${NAMESPACE}
+  labels:
+    app: redis
+    component: redis
 spec:
   replicas: 1
   selector:
@@ -586,9 +666,9 @@ spec:
       containers:
       - name: redis
         image: redis:7-alpine
-        command: ["redis-server","--appendonly","yes"]
         ports:
         - containerPort: 6379
+        command: ["redis-server","--appendonly","yes"]
 ---
 apiVersion: v1
 kind: Service
@@ -609,6 +689,8 @@ kind: Deployment
 metadata:
   name: redis-insight
   namespace: ${NAMESPACE}
+  labels:
+    app: redis-insight
 spec:
   replicas: 1
   selector:
@@ -638,29 +720,35 @@ spec:
     app: redis-insight
 YAML
 
-  # kafka-kraft
+  # kafka-kraft (single-node)
   cat > "${BASE_DIR}/kafka-kraft.yaml" <<YAML
 apiVersion: v1
 kind: Service
 metadata:
   name: kafka
   namespace: ${NAMESPACE}
+  labels:
+    app: kafka
+    component: kafka
 spec:
-  clusterIP: None
   ports:
   - port: 9092
     name: client
   - port: 9093
-    name: inter
+    name: inter-broker
   selector:
     app: kafka
     component: kafka
+  clusterIP: None
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: kafka
   namespace: ${NAMESPACE}
+  labels:
+    app: kafka
+    component: kafka
 spec:
   serviceName: kafka
   replicas: 1
@@ -701,6 +789,9 @@ kind: Deployment
 metadata:
   name: kafka-ui
   namespace: ${NAMESPACE}
+  labels:
+    app: kafka-ui
+    component: monitoring
 spec:
   replicas: 1
   selector:
@@ -730,7 +821,7 @@ spec:
     app: kafka-ui
 YAML
 
-  # prometheus
+  # prometheus-config + prometheus
   cat > "${BASE_DIR}/prometheus-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -789,7 +880,7 @@ spec:
     app: prometheus
 YAML
 
-  # grafana
+  # grafana-datasource + grafana
   cat > "${BASE_DIR}/grafana-datasource.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -847,7 +938,7 @@ spec:
     app: grafana
 YAML
 
-  # loki + promtail
+  # loki-config + loki
   cat > "${BASE_DIR}/loki-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -884,6 +975,7 @@ spec:
         - containerPort: 3100
 YAML
 
+  # promtail-config + promtail
   cat > "${BASE_DIR}/promtail-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -918,7 +1010,7 @@ spec:
         image: grafana/promtail:2.9.2
 YAML
 
-  # tempo
+  # tempo-config + tempo
   cat > "${BASE_DIR}/tempo-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -978,7 +1070,7 @@ spec:
               number: 80
 YAML
 
-  # kyverno
+  # kyverno policy
   cat > "${BASE_DIR}/kyverno-policy.yaml" <<YAML
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
@@ -1009,7 +1101,7 @@ spec:
               value: ""
 YAML
 
-  # kustomization
+  # kustomization with full resource list
   cat > "${BASE_DIR}/kustomization.yaml" <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -1062,43 +1154,55 @@ spec:
     namespace: ${NAMESPACE}
   syncPolicy:
     automated:
-      prune: true
       selfHeal: true
+      prune: true
 YAML
 
   info "Kubernetes manifests generated."
 }
 
+# --------------------------------------------------
+# README
+# --------------------------------------------------
 generate_readme(){
-  info "Writing README.md..."
+  info "Generating README.md..."
   cat > "${ROOT_DIR}/README.md" <<README
 # ${PROJECT} - All-in-one teaching stack
 
-This repository is generated by unified-stack.sh and contains:
-- FastAPI app + worker (app/)
-- Dockerfile
-- K8s manifests (manifests/base/)
-- GitHub Actions workflow (.github/workflows/ci-cd.yaml)
-- README & ArgoCD application manifest
+This repository is a generated example for the lab exercise:
+- Form -> Redis -> Worker -> Kafka + Postgres
+- Monitoring: Prometheus / Grafana / Tempo / Loki / Promtail
+- Secrets demo: Vault (dev mode) - DO NOT use in production
+- Policy: Kyverno (example ClusterPolicy)
+- UI: Kafka UI, RedisInsight, pgAdmin, Grafana
 
-Quickstart:
-1. Generate files:
-   ./unified-stack.sh generate
-2. Build & push image:
+Quickstart (local minikube / cluster):
+1. Build & push the container (or change manifests to use local image)
    docker build -t ${REGISTRY}:latest .
    docker push ${REGISTRY}:latest
-3. Deploy:
+
+2. Apply manifests:
    kubectl apply -k manifests/base
 
-Notes:
-- Vault runs with disable_mlock=true in manifest to avoid IPC_LOCK issues on some nodes.
-- Replace example passwords and Vault dev-mode with secure secrets in production.
+3. Test flow:
+   - Submit: curl -F "email=test@x" -F "message=hello" http://<ingress or svc>/api/contact
+   - Check Redis LRANGE outgoing_messages 0 -1
+   - Check message-processor logs, Kafka UI, and Postgres entries
+
+Security:
+- Replace example passwords and Vault dev-mode with production secrets (K8s Secret, SealedSecrets or Vault with proper auth)
+- Validate Kyverno policy and resource requests prior to production
+
+README generated by unified-stack.sh
 README
-  info "README generated."
+  info "README written."
 }
 
+# --------------------------------------------------
+# Orchestrator
+# --------------------------------------------------
 generate_all(){
-  info "Generating project..."
+  info "Starting full generation..."
   generate_structure
   generate_fastapi_app
   generate_dockerfile
@@ -1106,10 +1210,11 @@ generate_all(){
   generate_k8s_manifests
   generate_readme
   echo
-  info "✅ Done. Files created under ${ROOT_DIR}"
-  echo "Next: build image (or adjust manifests to use local image), push image, kubectl apply -k manifests/base"
+  info "✅ Generation complete. Files created under ${ROOT_DIR}"
+  echo "Next steps: build/push image, then kubectl apply -k manifests/base"
 }
 
+# CLI
 case "${1:-}" in
   generate) generate_all ;;
   help|-h|--help)
