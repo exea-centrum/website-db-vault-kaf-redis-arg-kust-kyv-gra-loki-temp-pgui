@@ -23,6 +23,9 @@ spec:
           ports:
             - containerPort: 3200
               protocol: TCP
+            - containerPort: 9095
+              protocol: TCP
+              name: grpc
           resources:
             limits:
               cpu: "250m"
@@ -33,12 +36,13 @@ spec:
           volumeMounts:
             - name: tempo-storage
               mountPath: /tmp/tempo
+            - name: tempo-config
+              mountPath: /etc/tempo
           args:
-            - -storage.trace.backend=local
-            - -storage.trace.local.path=/tmp/tempo/traces
-            - -compactor.compaction.window=1h
-            - -compactor.compaction.block-retention=24h
-            - -compactor.compaction.compacted-block-retention=1h
+            - -config.file=/etc/tempo/tempo.yaml
       volumes:
         - name: tempo-storage
           emptyDir: {}
+        - name: tempo-config
+          configMap:
+            name: tempo-config
