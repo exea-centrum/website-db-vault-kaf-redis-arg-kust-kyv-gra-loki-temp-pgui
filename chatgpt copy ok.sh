@@ -821,7 +821,7 @@ jobs:
            ${{ env.REGISTRY }}:latest
            ${{ env.REGISTRY }}:${{ github.sha }}
          cache-from: type=registry,ref=${{ env.REGISTRY }}:latest
-         cache-to: type:inline
+         cache-to: type=inline
 YAML
 }
 
@@ -1006,13 +1006,6 @@ spec:
         volumeMounts:
         - name: postgres-data
           mountPath: /var/lib/postgresql/data
-        resources:
-          requests:
-            cpu: "200m"
-            memory: "256Mi"
-          limits:
-            cpu: "500m"
-            memory: "512Mi"
   volumeClaimTemplates:
   - metadata:
       name: postgres-data
@@ -1023,7 +1016,7 @@ spec:
           storage: 10Gi
 YAML
 
- # pgadmin - FIXED email address
+ # pgadmin
  cat > "${BASE_DIR}/pgadmin.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -1045,18 +1038,11 @@ spec:
         image: dpage/pgadmin4:latest
         env:
         - name: PGADMIN_DEFAULT_EMAIL
-          value: "admin@example.com"
+          value: "admin@webstack.local"
         - name: PGADMIN_DEFAULT_PASSWORD
           value: "adminpassword"
         ports:
         - containerPort: 80
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-          limits:
-            cpu: "250m"
-            memory: "256Mi"
 ---
 apiVersion: v1
 kind: Service
@@ -1072,7 +1058,7 @@ spec:
     app: pgadmin
 YAML
 
- # vault - FIXED with development mode and proper startup
+ # vault
  cat > "${BASE_DIR}/vault.yaml" <<YAML
 apiVersion: v1
 kind: Service
@@ -1110,44 +1096,26 @@ spec:
       containers:
       - name: vault
         image: hashicorp/vault:1.15.0
-        command: 
-          - /bin/sh
-          - -c
-          - |
-            vault server -dev -dev-listen-address=0.0.0.0:8200 -dev-root-token-id=root &
-            sleep 5
-            wait
         ports:
         - containerPort: 8200
         env:
-        - name: VAULT_ADDR
-          value: "http://127.0.0.1:8200"
-        - name: VAULT_DEV_ROOT_TOKEN_ID
-          value: "root"
-        - name: VAULT_DEV_LISTEN_ADDRESS
-          value: "0.0.0.0:8200"
+        - name: VAULT_LOCAL_CONFIG
+          value: |
+            listener "tcp" {
+              address = "0.0.0.0:8200"
+              tls_disable = "true"
+            }
+            storage "file" {
+              path = "/vault/file"
+            }
+            disable_mlock = true
+            ui = true
         securityContext:
           capabilities:
             add: ["IPC_LOCK"]
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-          limits:
-            cpu: "250m"
-            memory: "256Mi"
-        readinessProbe:
-          httpGet:
-            path: /v1/sys/health
-            port: 8200
-          initialDelaySeconds: 5
-          periodSeconds: 5
-        livenessProbe:
-          httpGet:
-            path: /v1/sys/health
-            port: 8200
-          initialDelaySeconds: 15
-          periodSeconds: 15
+        volumeMounts:
+        - name: vault-data
+          mountPath: /vault/file
   volumeClaimTemplates:
   - metadata:
       name: vault-data
@@ -1164,7 +1132,7 @@ metadata:
   namespace: ${NAMESPACE}
 YAML
 
- # redis - FIXED with resources
+ # redis
  cat > "${BASE_DIR}/redis.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -1187,23 +1155,6 @@ spec:
         command: ["redis-server","--appendonly","yes"]
         ports:
         - containerPort: 6379
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-          limits:
-            cpu: "250m"
-            memory: "256Mi"
-        livenessProbe:
-          exec:
-            command: ["redis-cli", "ping"]
-          initialDelaySeconds: 10
-          periodSeconds: 5
-        readinessProbe:
-          exec:
-            command: ["redis-cli", "ping"]
-          initialDelaySeconds: 5
-          periodSeconds: 5
 ---
 apiVersion: v1
 kind: Service
@@ -1218,7 +1169,7 @@ spec:
     app: redis
 YAML
 
- # kafka-kraft - FIXED with proper configuration and resources
+ # kafka-kraft
  cat > "${BASE_DIR}/kafka-kraft.yaml" <<YAML
 apiVersion: v1
 kind: Service
@@ -1263,44 +1214,15 @@ spec:
         - name: KAFKA_CFG_PROCESS_ROLES
           value: "controller,broker"
         - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
-          value: "1@\${POD_NAME}.kafka.${NAMESPACE}.svc.cluster.local:9093"
+          value: "1@kafka:9093"
         - name: KAFKA_CFG_LISTENERS
-          value: "CLIENT://:9092,INTERNAL://:9093,CONTROLLER://:9094"
+          value: "CLIENT://:9092,INTERNAL://:9093"
         - name: KAFKA_CFG_ADVERTISED_LISTENERS
-          value: "CLIENT://kafka.${NAMESPACE}.svc.cluster.local:9092,INTERNAL://\${POD_NAME}.kafka.${NAMESPACE}.svc.cluster.local:9093"
-        - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
-          value: "CLIENT:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
-        - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
-          value: "CONTROLLER"
-        - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
-          value: "INTERNAL"
+          value: "CLIENT://kafka:9092,INTERNAL://kafka:9093"
         - name: KAFKA_CFG_KRAFT_CLUSTER_ID
           value: "${KAFKA_CLUSTER_ID}"
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
         ports:
         - containerPort: 9092
-        - containerPort: 9093
-        - containerPort: 9094
-        resources:
-          requests:
-            cpu: "500m"
-            memory: "1Gi"
-          limits:
-            cpu: "1000m"
-            memory: "2Gi"
-        readinessProbe:
-          tcpSocket:
-            port: 9092
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        livenessProbe:
-          tcpSocket:
-            port: 9092
-          initialDelaySeconds: 30
-          periodSeconds: 10
 YAML
 
  # kafka-ui
@@ -1323,22 +1245,8 @@ spec:
       containers:
       - name: kafka-ui
         image: provectuslabs/kafka-ui:latest
-        env:
-        - name: KAFKA_CLUSTERS_0_NAME
-          value: "local"
-        - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
-          value: "kafka:9092"
-        - name: KAFKA_CLUSTERS_0_READONLY
-          value: "false"
         ports:
         - containerPort: 8080
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "256Mi"
-          limits:
-            cpu: "250m"
-            memory: "512Mi"
 ---
 apiVersion: v1
 kind: Service
@@ -1404,13 +1312,6 @@ spec:
         volumeMounts:
         - name: config
           mountPath: /etc/prometheus
-        resources:
-          requests:
-            cpu: "200m"
-            memory: "512Mi"
-          limits:
-            cpu: "500m"
-            memory: "1Gi"
       volumes:
       - name: config
         configMap:
@@ -1473,13 +1374,6 @@ spec:
           value: admin
         ports:
         - containerPort: 3000
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "256Mi"
-          limits:
-            cpu: "250m"
-            memory: "512Mi"
 ---
 apiVersion: v1
 kind: Service
@@ -1531,13 +1425,6 @@ spec:
         image: grafana/loki:2.9.2
         ports:
         - containerPort: 3100
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "256Mi"
-          limits:
-            cpu: "250m"
-            memory: "512Mi"
 ---
 apiVersion: v1
 kind: Service
@@ -1591,13 +1478,6 @@ spec:
           mountPath: /etc/promtail
         - name: logs
           mountPath: /var/log
-        resources:
-          requests:
-            cpu: "50m"
-            memory: "64Mi"
-          limits:
-            cpu: "100m"
-            memory: "128Mi"
       volumes:
       - name: config
         configMap:
@@ -1643,13 +1523,6 @@ spec:
         image: grafana/tempo:2.4.2
         ports:
         - containerPort: 3200
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "256Mi"
-          limits:
-            cpu: "250m"
-            memory: "512Mi"
 ---
 apiVersion: v1
 kind: Service
@@ -1687,14 +1560,14 @@ spec:
               number: 80
 YAML
 
- # kyverno-policy - FIXED to be less restrictive for development
+ # kyverno-policy
  cat > "${BASE_DIR}/kyverno-policy.yaml" <<YAML
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
   name: require-resource-requests-limits
 spec:
-  validationFailureAction: Audit
+  validationFailureAction: Enforce
   background: true
   rules:
   - name: check-container-resources
@@ -1703,17 +1576,19 @@ spec:
         kinds:
         - Pod
     validate:
-      message: "For production, all containers should define 'requests' and 'limits' for CPU and memory."
-      pattern:
-        spec:
-          containers:
-          - resources:
-              requests:
-                memory: "?*"
-                cpu: "?*"
-              limits:
-                memory: "?*"
-                cpu: "?*"
+      message: "All containers must define 'requests' and 'limits' for CPU and memory."
+      foreach:
+      - variables:
+          element: "{{ request.object.spec.containers[] }}"
+        deny:
+          conditions:
+            any:
+            - key: "{{ element.resources.requests.cpu || '' }}"
+              operator: Equals
+              value: ""
+            - key: "{{ element.resources.limits.cpu || '' }}"
+              operator: Equals
+              value: ""
 YAML
 
  # kustomization with ALL resources
@@ -1780,108 +1655,13 @@ generate_readme(){
  cat > "${ROOT_DIR}/README.md" <<README
 # ${PROJECT} - Complete Monitoring Stack
 
-## 🚨 Fixed Issues
-
-### 1. Vault CrashLoopBackOff
-**Problem**: Vault container was crashing repeatedly
-**Solution**: 
-- Added development mode with proper startup command
-- Added health checks (readiness and liveness probes)
-- Set proper resource requests/limits
-
-### 2. Kafka Configuration
-**Problem**: Kafka wasn't starting properly
-**Solution**:
-- Fixed listener configuration with proper environment variables
-- Added proper resource allocation
-- Added health checks
-
-### 3. pgAdmin Email Validation
-**Problem**: `admin@webstack.local` is not a valid email
-**Solution**: Changed to `admin@example.com`
-
-### 4. Missing Resources
-**Problem**: Kyverno policy was too restrictive
-**Solution**: Changed to `Audit` mode and made policy less restrictive for development
-
-## 📊 Architecture Diagram
-
-\`\`\`
-┌─────────────────────────────────────────────────────────────────┐
-│                    KUBERNETES CLUSTER                           │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │   INGRESS   │    │  ARGOCD     │    │   KYVERNO POLICY    │  │
-│  │ (nginx)     │◄───┤ (GitOps)    │────│ (Security - Audit)  │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│          │                                                      │
-│          ▼                                                      │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │   FASTAPI   │────│    REDIS    │────│      KAFKA          │  │
-│  │   (App)     │    │  (Queue)    │    │   (Streaming)       │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│          │                            │          │              │
-│          │                            │          ▼              │
-│          ▼                            │  ┌─────────────┐        │
-│  ┌─────────────┐                      │  │  KAFKA UI   │        │
-│  │ POSTGRESQL  │◄─────────────────────┘  │ (Monitoring)│        │
-│  │  (Database) │                         └─────────────┘        │
-│  └─────────────┘                                                 │
-│          │                                                      │
-│          ▼                                                      │
-│  ┌─────────────┐                                                │
-│  │   PGADMIN   │                                                │
-│  │   (Admin)   │                                                │
-│  └─────────────┘                                                │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                      MONITORING STACK                           │
-│                                                                 │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │ PROMETHEUS  │◄───│   GRAFANA   │    │      LOKI           │  │
-│  │ (Metrics)   │    │ (Dashboards)│    │    (Logging)        │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│          ▲                            │          ▲              │
-│          │                            │          │              │
-│  ┌───────┴────────┐                   │  ┌───────┴────────┐     │
-│  │  Service       │                   │  │   PROMTAIL     │     │
-│  │  Discovery     │                   │  │ (Log Agent)    │     │
-│  └────────────────┘                   │  └────────────────┘     │
-│                                       │                         │
-│  ┌─────────────┐                      │  ┌─────────────────────┐│
-│  │   TEMPO     │                      │  │   APPLICATIONS      ││
-│  │ (Tracing)   │                      │  │ (FastAPI, Worker)   ││
-│  └─────────────┘                      │  └─────────────────────┘│
-│          ▲                            │                         │
-│          │                            │                         │
-│  ┌───────┴────────┐                   │                         │
-│  │  Distributed   │                   │                         │
-│  │   Tracing      │                   │                         │
-│  └────────────────┘                   │                         │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                      SECURITY (DEV MODE)                        │
-│                                                                 │
-│  ┌─────────────┐                                                │
-│  │    VAULT    │                                                │
-│  │  (Secrets)  │──────────────────────────────────────┐         │
-│  └─────────────┘                                      │         │
-│    (Dev Mode)                                         ▼         │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │ Database    │    │   Redis     │    │   Kafka             │  │
-│  │ Credentials │    │  Password   │    │  Credentials        │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-\`\`\`
-
 ## All Resources Generated:
 - ✅ app-deployment
 - ✅ postgres-db  
-- ✅ pgadmin (FIXED email)
-- ✅ vault (FIXED CrashLoopBackOff)
+- ✅ pgadmin
+- ✅ vault
 - ✅ redis
-- ✅ kafka-kraft (FIXED configuration)
+- ✅ kafka-kraft
 - ✅ kafka-ui
 - ✅ prometheus-config
 - ✅ prometheus
@@ -1894,56 +1674,31 @@ generate_readme(){
 - ✅ tempo-config
 - ✅ tempo
 - ✅ ingress
-- ✅ kyverno-policy (FIXED to Audit mode)
+- ✅ kyverno-policy
 
-## 🛠️ Quick Start
+## Architecture
+1. **Frontend**: FastAPI with survey system
+2. **Queue**: Redis for message brokering
+3. **Stream Processing**: Kafka for event streaming  
+4. **Database**: PostgreSQL for persistence
+5. **Secrets**: Vault for secure configuration
+6. **Monitoring**: Prometheus + Grafana + Loki + Tempo
+7. **Policy**: Kyverno for security policies
 
+## Quick Start
 \`\`\`bash
-# Generate all files
 ./unified-stack.sh generate
-
-# Build and push container
 docker build -t ${REGISTRY}:latest .
 docker push ${REGISTRY}:latest  
-
-# Deploy to Kubernetes
 kubectl apply -k manifests/base
-
-# Check status - all pods should be running now
-kubectl get pods -n ${NAMESPACE}
-
-# Check specific components
-kubectl logs deployment/vault -n ${NAMESPACE}
-kubectl logs statefulset/kafka -n ${NAMESPACE}
-kubectl logs deployment/pgadmin -n ${NAMESPACE}
 \`\`\`
 
-## 🔧 Troubleshooting
-
-If any pods are still failing:
-
-1. **Vault**: Should now start in dev mode
-2. **Kafka**: Check logs for configuration issues
-3. **pgAdmin**: Email validation should pass with example.com
-4. **Resources**: All components now have proper resource requests/limits
-
-## 🌐 Access Points
-
-| Service | URL | Purpose |
-|---------|-----|---------|
-| Application | http://app.${PROJECT}.local | Main website with survey |
-| Grafana | http://grafana-service.${NAMESPACE}.svc.cluster.local | Metrics & logs dashboard |
-| Prometheus | http://prometheus-service.${NAMESPACE}.svc.cluster.local | Metrics collection |
-| Kafka UI | http://kafka-ui.${NAMESPACE}.svc.cluster.local:8080 | Kafka monitoring |
-| pgAdmin | http://pgadmin-service.${NAMESPACE}.svc.cluster.local | Database administration |
-| Vault UI | http://vault.${NAMESPACE}.svc.cluster.local:8200 | Secrets management |
-
-## 📝 Notes
-
-- **Vault** is running in development mode (not for production)
-- **Kyverno** policy is in Audit mode for development
-- All components have proper health checks and resource limits
-- Survey system should work end-to-end: Web → Redis → Kafka → PostgreSQL
+## Access Points
+- App: http://app.${PROJECT}.local
+- Grafana: http://grafana-service.${NAMESPACE}.svc.cluster.local
+- Prometheus: http://prometheus-service.${NAMESPACE}.svc.cluster.local
+- Kafka UI: http://kafka-ui.${NAMESPACE}.svc.cluster.local:8080
+- pgAdmin: http://pgadmin-service.${NAMESPACE}.svc.cluster.local
 README
 }
 
@@ -1956,24 +1711,18 @@ generate_all(){
  generate_k8s_manifests
  generate_readme
  echo
- info "✅ COMPLETE! All resources generated with FIXES:"
- echo "🎯 Fixed Vault CrashLoopBackOff"
- echo "🎯 Fixed Kafka configuration" 
- echo "🎯 Fixed pgAdmin email validation"
- echo "🎯 Fixed Kyverno policy restrictions"
- echo ""
+ info "✅ COMPLETE! All resources generated:"
  echo "📁 app/ - FastAPI application with survey system"
  echo "📁 manifests/base/ - ALL Kubernetes manifests"
  echo "📄 Dockerfile - Container definition" 
  echo "📄 .github/workflows/ci-cd.yaml - GitHub Actions"
- echo "📄 README.md - Complete documentation with fixes"
+ echo "📄 README.md - Complete documentation"
  echo
  echo "🚀 Next steps:"
  echo "1. Build: docker build -t ${REGISTRY}:latest ."
  echo "2. Push: docker push ${REGISTRY}:latest"
  echo "3. Deploy: kubectl apply -k manifests/base"
- echo "4. Check: kubectl get pods -n ${NAMESPACE}"
- echo "5. Access: http://app.${PROJECT}.local"
+ echo "4. Access: http://app.${PROJECT}.local"
 }
 
 case "${1:-}" in
@@ -1981,7 +1730,7 @@ case "${1:-}" in
  help|-h|--help)
    cat <<EOF
 Usage: $0 generate
-Generates complete website with ALL monitoring stack components and FIXES for reported issues.
+Generates complete website with ALL monitoring stack components.
 EOF
    ;;
  *)
