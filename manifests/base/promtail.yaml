@@ -13,24 +13,26 @@ spec:
         app: promtail
     spec:
       containers:
-      - name: promtail
-        image: grafana/promtail:2.9.2
-        volumeMounts:
-        - name: config
-          mountPath: /etc/promtail
-        - name: logs
-          mountPath: /var/log
-        resources:
-          requests:
-            cpu: "50m"
-            memory: "64Mi"
-          limits:
-            cpu: "100m"
-            memory: "128Mi"
+        - name: promtail
+          image: grafana/promtail:2.9.2
+          args:
+            - -config.file=/etc/promtail/config.yml
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+            - name: logs
+              mountPath: /var/log
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
       volumes:
-      - name: config
-        configMap:
-          name: promtail-config
-      - name: logs
-        hostPath:
-          path: /var/log
+        - name: config
+          configMap:
+            name: promtail-config
+        - name: logs
+          hostPath:
+            path: /var/log
