@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: davtrowebdbvault
+
+resources:
+ - app-deployment.yaml
+ - message-processor.yaml
+ - postgres-db.yaml
+ - pgadmin.yaml
+ - vault.yaml
+ - redis.yaml
+ - kafka-kraft.yaml
+ - kafka-ui.yaml
+ - prometheus-config.yaml
+ - prometheus.yaml
+ - grafana-datasource.yaml
+ - grafana.yaml
+ - loki-config.yaml
+ - loki.yaml
+ - promtail-config.yaml
+ - promtail.yaml
+ - tempo-config.yaml
+ - tempo.yaml
+ - ingress.yaml
+ - kyverno-policy.yaml
+
+commonLabels:
+  app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+  app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+  app.kubernetes.io/managed-by: kustomize
