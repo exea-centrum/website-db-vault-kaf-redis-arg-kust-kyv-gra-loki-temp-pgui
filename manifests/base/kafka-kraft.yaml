@@ -6,10 +6,10 @@ metadata:
 spec:
   clusterIP: None
   ports:
-  - port: 9092
-    name: client
-  - port: 9093
-    name: inter
+    - port: 9092
+      name: client
+    - port: 9093
+      name: inter
   selector:
     app: kafka
     component: kafka
@@ -33,49 +33,49 @@ spec:
         component: kafka
     spec:
       containers:
-      - name: kafka
-        image: bitnami/kafka:3.6.1
-        env:
-        - name: KAFKA_CFG_NODE_ID
-          value: "1"
-        - name: KAFKA_CFG_PROCESS_ROLES
-          value: "controller,broker"
-        - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
-          value: "1@${POD_NAME}.kafka.davtrowebdbvault.svc.cluster.local:9093"
-        - name: KAFKA_CFG_LISTENERS
-          value: "CLIENT://:9092,INTERNAL://:9093,CONTROLLER://:9094"
-        - name: KAFKA_CFG_ADVERTISED_LISTENERS
-          value: "CLIENT://kafka.davtrowebdbvault.svc.cluster.local:9092,INTERNAL://${POD_NAME}.kafka.davtrowebdbvault.svc.cluster.local:9093"
-        - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
-          value: "CLIENT:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
-        - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
-          value: "CONTROLLER"
-        - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
-          value: "INTERNAL"
-        - name: KAFKA_CFG_KRAFT_CLUSTER_ID
-          value: "4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ"
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        ports:
-        - containerPort: 9092
-        - containerPort: 9093
-        - containerPort: 9094
-        resources:
-          requests:
-            cpu: "500m"
-            memory: "1Gi"
-          limits:
-            cpu: "1000m"
-            memory: "2Gi"
-        readinessProbe:
-          tcpSocket:
-            port: 9092
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        livenessProbe:
-          tcpSocket:
-            port: 9092
-          initialDelaySeconds: 30
-          periodSeconds: 10
+        - name: kafka
+          image: apache/kafka:4.1.0
+          env:
+            - name: KAFKA_CFG_NODE_ID
+              value: "1"
+            - name: KAFKA_CFG_PROCESS_ROLES
+              value: "controller,broker"
+            - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+              value: "1@${POD_NAME}.kafka.davtrowebdbvault.svc.cluster.local:9093"
+            - name: KAFKA_CFG_LISTENERS
+              value: "CLIENT://:9092,INTERNAL://:9093,CONTROLLER://:9094"
+            - name: KAFKA_CFG_ADVERTISED_LISTENERS
+              value: "CLIENT://kafka.davtrowebdbvault.svc.cluster.local:9092,INTERNAL://${POD_NAME}.kafka.davtrowebdbvault.svc.cluster.local:9093"
+            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "CLIENT:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
+            - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
+              value: "INTERNAL"
+            - name: KAFKA_CFG_KRAFT_CLUSTER_ID
+              value: "4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - containerPort: 9092
+            - containerPort: 9093
+            - containerPort: 9094
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          readinessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 30
+            periodSeconds: 10
