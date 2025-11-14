@@ -4,7 +4,7 @@ metadata:
   name: grafana-dashboards
   namespace: davtrowebdbvault
 data:
-  fastapi-dashboard.json: |
+  fastapi-dashboard.json: |-
     {
       "dashboard": {
         "title": "FastAPI Application Metrics",
@@ -22,7 +22,7 @@ data:
         ]
       }
     }
-  kafka-dashboard.json: |
+  kafka-dashboard.json: |-
     {
       "dashboard": {
         "title": "Kafka Metrics", 
@@ -34,6 +34,97 @@ data:
               {
                 "expr": "rate(kafka_topic_messages_in_total[5m])",
                 "legendFormat": "Messages/s"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  postgres-dashboard.json: |-
+    {
+      "dashboard": {
+        "title": "PostgreSQL Metrics",
+        "panels": [
+          {
+            "title": "Database Connections",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "pg_stat_database_numbackends{datname=\"webdb\"}",
+                "legendFormat": "Connections"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  redis-dashboard.json: |-
+    {
+      "dashboard": {
+        "title": "Redis Metrics",
+        "panels": [
+          {
+            "title": "Connected Clients",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "redis_connected_clients",
+                "legendFormat": "Clients"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  system-dashboard.json: |-
+    {
+      "dashboard": {
+        "title": "System Metrics",
+        "panels": [
+          {
+            "title": "CPU Usage",
+            "type": "gauge",
+            "targets": [
+              {
+                "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                "legendFormat": "CPU %"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  vault-dashboard.json: |-
+    {
+      "dashboard": {
+        "title": "Vault Metrics",
+        "panels": [
+          {
+            "title": "Vault Health",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "vault_core_unsealed",
+                "legendFormat": "Unsealed"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  comprehensive-dashboard.json: |-
+    {
+      "dashboard": {
+        "title": "Comprehensive Monitoring",
+        "panels": [
+          {
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+            "title": "Application Overview",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total[5m])",
+                "legendFormat": "HTTP Requests/s"
               }
             ]
           }

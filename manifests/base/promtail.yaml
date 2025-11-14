@@ -12,14 +12,22 @@ spec:
       labels:
         app: promtail
     spec:
+      serviceAccountName: promtail-sa
       containers:
       - name: promtail
         image: grafana/promtail:2.9.2
         volumeMounts:
         - name: config
           mountPath: /etc/promtail
-        - name: logs
-          mountPath: /var/log
+        - name: pods
+          mountPath: /var/log/pods
+          readOnly: true
+        - name: containers
+          mountPath: /var/log/containers
+          readOnly: true
+        - name: varlib
+          mountPath: /var/lib
+          readOnly: true
         resources:
           requests:
             cpu: "50m"
@@ -27,10 +35,49 @@ spec:
           limits:
             cpu: "100m"
             memory: "128Mi"
+        args:
+        - -config.file=/etc/promtail/promtail.yaml
       volumes:
       - name: config
         configMap:
           name: promtail-config
-      - name: logs
+      - name: pods
         hostPath:
-          path: /var/log
+          path: /var/log/pods
+      - name: containers
+        hostPath:
+          path: /var/log/containers
+      - name: varlib
+        hostPath:
+          path: /var/lib
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: promtail-sa
+  namespace: davtrowebdbvault
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: promtail-clusterrole
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["extensions"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: promtail-clusterrolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: promtail-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: promtail-sa
+  namespace: davtrowebdbvault

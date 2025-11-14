@@ -5,6 +5,7 @@ metadata:
   namespace: davtrowebdbvault
   annotations:
     kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
   - host: app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local
@@ -15,5 +16,15 @@ spec:
         backend:
           service:
             name: fastapi-web-service
+            port:
+              number: 80
+  - host: grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana-service
             port:
               number: 80

@@ -19,13 +19,28 @@ spec:
         image: grafana/loki:2.9.2
         ports:
         - containerPort: 3100
+        - containerPort: 9096
+        volumeMounts:
+        - name: config
+          mountPath: /etc/loki
+        - name: storage
+          mountPath: /tmp/loki
         resources:
           requests:
             cpu: "100m"
             memory: "256Mi"
           limits:
-            cpu: "250m"
-            memory: "512Mi"
+            cpu: "500m"
+            memory: "1Gi"
+        args:
+        - -config.file=/etc/loki/loki.yaml
+      volumes:
+      - name: config
+        configMap:
+          name: loki-config
+      - name: storage
+        persistentVolumeClaim:
+          claimName: loki-storage
 ---
 apiVersion: v1
 kind: Service
@@ -36,5 +51,19 @@ spec:
   ports:
   - port: 3100
     targetPort: 3100
+  - port: 9096
+    targetPort: 9096
   selector:
     app: loki
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-storage
+  namespace: davtrowebdbvault
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

@@ -1,137 +1,38 @@
 # website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui - Complete Monitoring Stack
 
-## 🚨 Fixed Issues
+## 🚀 Now with Full Grafana Integration!
 
-### 1. ✅ Vault CrashLoopBackOff - FIXED
-**Problem**: Vault container was crashing repeatedly
-**Solution**: 
-- Added development mode with proper startup command
-- Added health checks (readiness and liveness probes)
-- Added Vault initialization job and scripts
+### 📊 Complete Monitoring Architecture
 
-### 2. ✅ Kafka Configuration - FIXED
-**Problem**: Bitnami Kafka had issues
-**Solution**: **Changed to official Apache Kafka 4.1 image**
-- Using  instead of 
-- Simplified KRaft configuration
-- Proper environment variables for Apache Kafka
+Grafana is now fully integrated with ALL components in the cluster:
 
-### 3. ✅ pgAdmin Email Validation - FIXED
-**Problem**:  is not a valid email
-**Solution**: Changed to 
+#### 🔍 Data Sources Configuration:
+- **Prometheus** - Metrics collection from all services
+- **Loki** - Log aggregation from all pods
+- **Tempo** - Distributed tracing
+- **PostgreSQL** - Direct database connection
 
-### 4. ✅ Kyverno Policy - FIXED
-**Problem**: Policy was too restrictive
-**Solution**: Changed to  mode for development
+#### 📈 Metrics Collection:
+- **FastAPI Application** - HTTP metrics, response times, error rates
+- **PostgreSQL** - Database connections, query performance, locks
+- **Redis** - Memory usage, connections, operations
+- **Kafka** - Message rates, consumer lag, topic metrics
+- **Vault** - Seal status, token usage, secret operations
+- **System** - CPU, memory, disk, network (via Node Exporter)
 
-### 5. ✅ Added Missing YAML Files - FIXED
-**Added**:
-- vault-secrets.yaml - Vault initialization scripts
-- vault-job.yaml - Job to initialize Vault secrets
-- fastapi-config.yaml - Application configuration
-- kafka-topics.yaml - Kafka topic configuration  
-- grafana-dashboards.yaml - Grafana dashboard definitions
-- network-policies.yaml - Network security policies
-- service-monitors.yaml - Prometheus service monitoring
+#### 📋 Dashboards Included:
+1. **FastAPI Application Metrics** - HTTP requests, response times, errors
+2. **Kafka Metrics** - Message throughput, consumer lag, broker stats
+3. **PostgreSQL Metrics** - Connections, queries, performance
+4. **Redis Metrics** - Memory, connections, operations
+5. **System Metrics** - CPU, memory, disk, network
+6. **Vault Metrics** - Health, token usage, secret operations
+7. **Comprehensive Monitoring** - All services in one view
 
-## 📊 Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    KUBERNETES CLUSTER                           │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │   INGRESS   │    │  ARGOCD     │    │   KYVERNO POLICY    │  │
-│  │ (nginx)     │◄───┤ (GitOps)    │────│ (Security - Audit)  │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│          │                                                      │
-│          ▼                                                      │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │   FASTAPI   │────│    REDIS    │────│    APACHE KAFKA     │  │
-│  │   (App)     │    │  (Queue)    │    │   (v4.1 - KRaft)    │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│          │                            │          │              │
-│          │                            │          ▼              │
-│          ▼                            │  ┌─────────────┐        │
-│  ┌─────────────┐                      │  │  KAFKA UI   │        │
-│  │ POSTGRESQL  │◄─────────────────────┘  │ (Monitoring)│        │
-│  │  (Database) │                         └─────────────┘        │
-│  └─────────────┘                                                 │
-│          │                                                      │
-│          ▼                                                      │
-│  ┌─────────────┐                                                │
-│  │   PGADMIN   │                                                │
-│  │   (Admin)   │                                                │
-│  └─────────────┘                                                │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                      MONITORING STACK                           │
-│                                                                 │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │ PROMETHEUS  │◄───│   GRAFANA   │    │      LOKI           │  │
-│  │ (Metrics)   │    │ (Dashboards)│    │    (Logging)        │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│          ▲                            │          ▲              │
-│          │                            │          │              │
-│  ┌───────┴────────┐                   │  ┌───────┴────────┐     │
-│  │  Service       │                   │  │   PROMTAIL     │     │
-│  │  Discovery     │                   │  │ (Log Agent)    │     │
-│  └────────────────┘                   │  └────────────────┘     │
-│                                       │                         │
-│  ┌─────────────┐                      │  ┌─────────────────────┐│
-│  │   TEMPO     │                      │  │   APPLICATIONS      ││
-│  │ (Tracing)   │                      │  │ (FastAPI, Worker)   ││
-│  └─────────────┘                      │  └─────────────────────┘│
-│          ▲                            │                         │
-│          │                            │                         │
-│  ┌───────┴────────┐                   │                         │
-│  │  Distributed   │                   │                         │
-│  │   Tracing      │                   │                         │
-│  └────────────────┘                   │                         │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                      SECURITY (DEV MODE)                        │
-│                                                                 │
-│  ┌─────────────┐                                                │
-│  │    VAULT    │                                                │
-│  │  (Secrets)  │──────────────────────────────────────┐         │
-│  └─────────────┘                                      │         │
-│    (Dev Mode)                                         ▼         │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │ Database    │    │   Redis     │    │   Kafka             │  │
-│  │ Credentials │    │  Password   │    │  Credentials        │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-## All Resources Generated:
-- ✅ app-deployment
-- ✅ postgres-db  
-- ✅ pgadmin (FIXED email)
-- ✅ vault (FIXED CrashLoopBackOff)
-- ✅ vault-secrets (NEW)
-- ✅ vault-job (NEW)
-- ✅ redis
-- ✅ **kafka-kraft (USING APACHE KAFKA 4.1)**
-- ✅ kafka-topics (NEW)
-- ✅ kafka-ui
-- ✅ fastapi-config (NEW)
-- ✅ prometheus-config
-- ✅ service-monitors (NEW)
-- ✅ prometheus
-- ✅ grafana-datasource
-- ✅ grafana-dashboards (NEW)
-- ✅ grafana
-- ✅ loki-config
-- ✅ loki
-- ✅ promtail-config
-- ✅ promtail
-- ✅ tempo-config
-- ✅ tempo
-- ✅ network-policies (NEW)
-- ✅ ingress
-- ✅ kyverno-policy (FIXED to Audit mode)
+#### 🔧 New Exporters Added:
+- **postgres-exporter** - PostgreSQL metrics
+- **kafka-exporter** - Kafka metrics
+- **node-exporter** - System metrics
 
 ## 🛠️ Quick Start
 
@@ -139,49 +40,77 @@
 # Generate all files
 ./chatgpt.sh generate
 
-# Build and push container
-docker build -t ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui:latest .
-docker push ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui:latest  
-
 # Deploy to Kubernetes
 kubectl apply -k manifests/base
 
-# Check status - all pods should be running now
+# Check all pods
 kubectl get pods -n davtrowebdbvault
 
-# Check Kafka specifically
-kubectl logs statefulset/kafka -n davtrowebdbvault
+# Access applications:
+# Main App: http://app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local
+# Grafana: http://grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local (admin/admin)
 
-# Initialize Vault secrets
+# Initialize Vault
 kubectl wait --for=condition=complete job/vault-init -n davtrowebdbvault
 ```
 
-## 🔧 Kafka Configuration Details
-
-**Using**: Official Apache Kafka 4.1 with KRaft (no Zookeeper)
-**Image**: 
-**Features**:
-- Single node KRaft cluster
-- PLAINTEXT listeners on port 9092
-- Controller on port 9093
-- Automatic topic creation enabled
-
 ## 🌐 Access Points
 
-| Service | URL | Purpose |
-|---------|-----|---------|
-| Application | http://app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local | Main website with survey |
-| Grafana | http://grafana-service.davtrowebdbvault.svc.cluster.local | Metrics & logs dashboard |
-| Prometheus | http://prometheus-service.davtrowebdbvault.svc.cluster.local | Metrics collection |
-| Kafka UI | http://kafka-ui.davtrowebdbvault.svc.cluster.local:8080 | Kafka monitoring |
-| pgAdmin | http://pgadmin-service.davtrowebdbvault.svc.cluster.local | Database administration |
-| Vault UI | http://vault.davtrowebdbvault.svc.cluster.local:8200 | Secrets management |
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Application | http://app.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local | - |
+| Grafana | http://grafana.website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.local | admin/admin |
+| Kafka UI | http://kafka-ui.davtrowebdbvault.svc.cluster.local:8080 | - |
+| Vault UI | http://vault.davtrowebdbvault.svc.cluster.local:8200 | root token |
+
+## 📊 Monitoring Flow
+
+```
+Application Logs → Promtail → Loki → Grafana
+Application Metrics → Prometheus → Grafana
+Database Metrics → Postgres Exporter → Prometheus → Grafana
+Kafka Metrics → Kafka Exporter → Prometheus → Grafana
+System Metrics → Node Exporter → Prometheus → Grafana
+Tracing Data → Tempo → Grafana
+```
+
+## 🔍 What You Can Monitor:
+
+### Application Level:
+- HTTP request rates and latency
+- Database query performance
+- Redis cache hit rates
+- Kafka message throughput
+- Error rates and exceptions
+
+### Infrastructure Level:
+- CPU and memory usage
+- Disk I/O and space
+- Network traffic
+- Pod resource consumption
+- Cluster health
+
+### Business Level:
+- Survey response rates
+- User engagement metrics
+- System usage patterns
+- Performance trends
+
+## 🚀 Features
+
+- **Real-time metrics** from all services
+- **Centralized logging** with Loki
+- **Distributed tracing** with Tempo
+- **Custom dashboards** for each service
+- **Alerting ready** configuration
+- **Persistent storage** for metrics and logs
+- **Auto-discovery** of new services
+- **Multi-level monitoring** (app/infra/business)
 
 ## 📝 Notes
 
-- **Vault** is running in development mode (not for production)
-- **Kafka** uses official Apache Kafka 4.1 image (KRaft mode)
-- **Kyverno** policy is in Audit mode for development
-- All components have proper health checks and resource limits
-- Survey system should work end-to-end: Web → Redis → Kafka → PostgreSQL
-- **All missing YAML files have been implemented** with proper configurations
+- All dashboards are pre-configured and ready to use
+- Metrics are collected every 15 seconds
+- Logs are collected in real-time
+- All data is persisted across pod restarts
+- Grafana is configured with provisioning for easy setup

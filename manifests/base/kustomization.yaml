@@ -16,6 +16,9 @@ resources:
  - kafka-ui.yaml
  - fastapi-config.yaml
  - prometheus-config.yaml
+ - postgres-exporter.yaml
+ - kafka-exporter.yaml
+ - node-exporter.yaml
  - service-monitors.yaml
  - prometheus.yaml
  - grafana-datasource.yaml

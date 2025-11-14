@@ -4,10 +4,28 @@ metadata:
   name: grafana-datasource
   namespace: davtrowebdbvault
 data:
-  prometheus.yaml: |
+  datasources.yaml: |
     apiVersion: 1
     datasources:
     - name: Prometheus
       type: prometheus
       url: http://prometheus-service:9090
       isDefault: true
+      access: proxy
+    - name: Loki
+      type: loki
+      url: http://loki:3100
+      access: proxy
+    - name: Tempo
+      type: tempo
+      url: http://tempo:3200
+      access: proxy
+    - name: PostgreSQL
+      type: postgres
+      url: postgres-db:5432
+      database: webdb
+      user: webuser
+      secureJsonData:
+        password: "testpassword"
+      jsonData:
+        sslmode: "disable"

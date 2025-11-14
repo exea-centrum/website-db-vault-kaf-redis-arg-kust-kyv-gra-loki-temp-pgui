@@ -36,8 +36,35 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-      component: postgres
+      app: postgres-exporter
   endpoints:
-  - port: postgres
+  - port: http
+    interval: 30s
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kafka-monitor
+  namespace: davtrowebdbvault
+spec:
+  selector:
+    matchLabels:
+      app: kafka-exporter
+  endpoints:
+  - port: http
+    interval: 30s
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: node-monitor
+  namespace: davtrowebdbvault
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  endpoints:
+  - port: http
     interval: 30s
