@@ -19,6 +19,13 @@ spec:
         image: grafana/tempo:2.4.2
         ports:
         - containerPort: 3200
+        - containerPort: 4317
+        - containerPort: 4318
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tempo
+        - name: storage
+          mountPath: /tmp/tempo
         resources:
           requests:
             cpu: "100m"
@@ -26,6 +33,14 @@ spec:
           limits:
             cpu: "250m"
             memory: "512Mi"
+        args:
+        - -config.file=/etc/tempo/tempo.yaml
+      volumes:
+      - name: config
+        configMap:
+          name: tempo-config
+      - name: storage
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -36,5 +51,12 @@ spec:
   ports:
   - port: 3200
     targetPort: 3200
+    name: http
+  - port: 4317
+    targetPort: 4317
+    name: otlp-grpc
+  - port: 4318
+    targetPort: 4318
+    name: otlp-http
   selector:
     app: tempo

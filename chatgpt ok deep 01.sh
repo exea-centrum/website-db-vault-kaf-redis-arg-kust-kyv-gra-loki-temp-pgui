@@ -843,7 +843,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -856,7 +856,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Build and push image
         uses: docker/build-push-action@v6
@@ -1331,7 +1331,7 @@ spec:
     app: redis
 YAML
 
- # kafka-kraft - UPDATED with working image and auto topic creation
+ # kafka-kraft - UPDATED with auto topic creation and without Strimzi dependency
  cat > "${BASE_DIR}/kafka-kraft.yaml" <<YAML
 apiVersion: v1
 kind: Service
@@ -1367,27 +1367,37 @@ spec:
     spec:
       containers:
       - name: kafka
-        image: bitnami/kafka:3.7
+        image: apache/kafka:4.1
         env:
-        - name: BITNAMI_DEBUG
-          value: "false"
-        - name: KAFKA_CFG_NODE_ID
+        - name: KAFKA_NODE_ID
           value: "1"
-        - name: KAFKA_CFG_PROCESS_ROLES
+        - name: KAFKA_PROCESS_ROLES
           value: "controller,broker"
-        - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+        - name: KAFKA_CONTROLLER_QUORUM_VOTERS
           value: "1@\${POD_NAME}.kafka.${NAMESPACE}.svc.cluster.local:9093"
-        - name: KAFKA_CFG_LISTENERS
+        - name: KAFKA_LISTENERS
           value: "PLAINTEXT://:9092,CONTROLLER://:9093"
-        - name: KAFKA_CFG_ADVERTISED_LISTENERS
+        - name: KAFKA_ADVERTISED_LISTENERS
           value: "PLAINTEXT://kafka.${NAMESPACE}.svc.cluster.local:9092"
-        - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+        - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
           value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
-        - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+        - name: KAFKA_CONTROLLER_LISTENER_NAMES
           value: "CONTROLLER"
-        - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
+        - name: KAFKA_INTER_BROKER_LISTENER_NAME
           value: "PLAINTEXT"
-        - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
+        - name: CLUSTER_ID
+          value: "${KAFKA_CLUSTER_ID}"
+        - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+          value: "1"
+        - name: KAFKA_LOG_RETENTION_HOURS
+          value: "168"
+        - name: KAFKA_NUM_PARTITIONS
+          value: "3"
+        - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
           value: "true"
         - name: POD_NAME
           valueFrom:
@@ -1415,7 +1425,7 @@ spec:
           periodSeconds: 10
 YAML
 
- # kafka-topic-job.yaml - UPDATED with working image
+ # kafka-topic-job.yaml - NEW for creating topics without Strimzi CRD
  cat > "${BASE_DIR}/kafka-topic-job.yaml" <<YAML
 apiVersion: batch/v1
 kind: Job
@@ -1427,7 +1437,7 @@ spec:
     spec:
       containers:
       - name: create-topics
-        image: bitnami/kafka:3.7
+        image: apache/kafka:4.1
         command:
         - /bin/sh
         - -c
@@ -1440,7 +1450,7 @@ spec:
           done
           
           # Create survey topic
-          /opt/bitnami/kafka/bin/kafka-topics.sh --create \
+          /opt/kafka/bin/kafka-topics.sh --create \
             --bootstrap-server kafka:9092 \
             --topic survey-topic \
             --partitions 3 \
@@ -1663,7 +1673,7 @@ spec:
     app: postgres-exporter
 YAML
 
- # kafka-exporter - UPDATED with working image and better error handling
+ # kafka-exporter - NEW for Kafka metrics
  cat > "${BASE_DIR}/kafka-exporter.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -1682,14 +1692,12 @@ spec:
     spec:
       containers:
       - name: kafka-exporter
-        image: bitnami/kafka-exporter:latest
+        image: danielqsj/kafka-exporter:latest
         ports:
         - containerPort: 9308
         env:
         - name: KAFKA_BROKERS
           value: "kafka:9092"
-        - name: LOG_LEVEL
-          value: "info"
         resources:
           requests:
             cpu: "100m"
@@ -1701,7 +1709,7 @@ spec:
           httpGet:
             path: /metrics
             port: 9308
-          initialDelaySeconds: 30
+          initialDelaySeconds: 10
           periodSeconds: 10
         readinessProbe:
           httpGet:
@@ -2116,7 +2124,7 @@ data:
     }
 YAML
 
- # grafana - UPDATED without plugins to avoid timeout issues
+ # grafana - UPDATED with all configurations
  cat > "${BASE_DIR}/grafana.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -2143,6 +2151,8 @@ spec:
           value: admin
         - name: GF_SECURITY_ADMIN_PASSWORD
           value: admin
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-clock-panel,grafana-simple-json-datasource,vertamedia-clickhouse-datasource"
         volumeMounts:
         - name: grafana-storage
           mountPath: /var/lib/grafana
@@ -2499,7 +2509,7 @@ subjects:
   namespace: ${NAMESPACE}
 YAML
 
- # tempo-config - UPDATED with proper storage configuration
+ # tempo-config
  cat > "${BASE_DIR}/tempo-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -2510,28 +2520,9 @@ data:
   tempo.yaml: |
     server:
       http_listen_port: 3200
-    
-    distributor:
-      receivers:
-        otlp:
-          protocols:
-            grpc:
-            http:
-    
-    storage:
-      trace:
-        backend: local
-        local:
-          path: /tmp/tempo/blocks
-        pool:
-          max_workers: 100
-          queue_depth: 10000
-    
-    ingester:
-      max_block_duration: 5m
 YAML
 
- # tempo - UPDATED with proper configuration
+ # tempo
  cat > "${BASE_DIR}/tempo.yaml" <<YAML
 apiVersion: apps/v1
 kind: StatefulSet
@@ -2554,13 +2545,6 @@ spec:
         image: grafana/tempo:2.4.2
         ports:
         - containerPort: 3200
-        - containerPort: 4317
-        - containerPort: 4318
-        volumeMounts:
-        - name: config
-          mountPath: /etc/tempo
-        - name: storage
-          mountPath: /tmp/tempo
         resources:
           requests:
             cpu: "100m"
@@ -2568,14 +2552,6 @@ spec:
           limits:
             cpu: "250m"
             memory: "512Mi"
-        args:
-        - -config.file=/etc/tempo/tempo.yaml
-      volumes:
-      - name: config
-        configMap:
-          name: tempo-config
-      - name: storage
-        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -2586,13 +2562,6 @@ spec:
   ports:
   - port: 3200
     targetPort: 3200
-    name: http
-  - port: 4317
-    targetPort: 4317
-    name: otlp-grpc
-  - port: 4318
-    targetPort: 4318
-    name: otlp-http
   selector:
     app: tempo
 YAML
@@ -2641,7 +2610,7 @@ spec:
           app: redis
     ports:
     - protocol: TCP
-    port: 6379
+      port: 6379
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -2772,7 +2741,7 @@ spec:
                 cpu: "?*"
 YAML
 
- # kustomization with ALL resources - UPDATED
+ # kustomization with ALL resources - UPDATED (removed kafka-topics.yaml, added kafka-topic-job.yaml)
  cat > "${BASE_DIR}/kustomization.yaml" <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization

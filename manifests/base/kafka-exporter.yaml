@@ -15,12 +15,14 @@ spec:
     spec:
       containers:
       - name: kafka-exporter
-        image: danielqsj/kafka-exporter:latest
+        image: bitnami/kafka-exporter:latest
         ports:
         - containerPort: 9308
         env:
         - name: KAFKA_BROKERS
           value: "kafka:9092"
+        - name: LOG_LEVEL
+          value: "info"
         resources:
           requests:
             cpu: "100m"
@@ -32,7 +34,7 @@ spec:
           httpGet:
             path: /metrics
             port: 9308
-          initialDelaySeconds: 10
+          initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:

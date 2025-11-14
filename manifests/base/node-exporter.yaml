@@ -28,7 +28,7 @@ spec:
         - --path.procfs=/host/proc
         - --path.sysfs=/host/sys
         - --path.rootfs=/host/root
-        - --collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)(148565|/)
+        - --collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)(308469|/)
         volumeMounts:
         - name: proc
           mountPath: /host/proc
