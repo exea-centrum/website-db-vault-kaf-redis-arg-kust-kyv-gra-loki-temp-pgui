@@ -14,7 +14,7 @@ REDIS_LIST = os.getenv("REDIS_LIST", "outgoing_messages")
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "survey-topic")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db")
+DATABASE_URL = os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db port=5432")
 
 def get_redis():
     return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)

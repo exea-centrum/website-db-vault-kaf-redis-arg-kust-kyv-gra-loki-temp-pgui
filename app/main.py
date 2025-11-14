@@ -66,9 +66,10 @@ def get_vault_secret(secret_path: str) -> dict:
         
         if vault_token:
             client = hvac.Client(url=vault_addr, token=vault_token)
-            secret = client.read(secret_path)
-            if secret:
-                return secret['data']['data']
+            if client.is_authenticated():
+                secret = client.read(secret_path)
+                if secret and 'data' in secret:
+                    return secret['data'].get('data', {})
         else:
             logger.warning("Vault token not available, using fallback")
             
@@ -84,9 +85,10 @@ def get_database_config() -> str:
         return f"dbname={vault_secret.get('postgres-db', 'webdb')} " \
                f"user={vault_secret.get('postgres-user', 'webuser')} " \
                f"password={vault_secret.get('postgres-password', 'testpassword')} " \
-               f"host={vault_secret.get('postgres-host', 'postgres-db')}"
+               f"host={vault_secret.get('postgres-host', 'postgres-db')} " \
+               f"port=5432"
     else:
-        return os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db")
+        return os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db port=5432")
 
 DB_CONN = get_database_config()
 
@@ -103,11 +105,11 @@ def get_db_connection():
             conn = psycopg2.connect(DB_CONN)
             return conn
         except psycopg2.OperationalError as e:
-            logger.warning(f"Attempt {attempt + 1} failed: {e}")
+            logger.warning(f"Database connection attempt {attempt + 1} failed: {e}")
             if attempt < max_retries - 1:
                 time.sleep(10)
             else:
-                logger.error(f"All connection attempts failed: {e}")
+                logger.error(f"All database connection attempts failed: {e}")
                 raise e
 
 def init_database():
@@ -193,7 +195,7 @@ async def health_check():
     except Exception as e:
         logger.warning(f"Health check failed: {e}")
         return {
-            "status": "healthy",
+            "status": "unhealthy",
             "database": "disconnected",
             "vault": "disconnected",
             "error": str(e)

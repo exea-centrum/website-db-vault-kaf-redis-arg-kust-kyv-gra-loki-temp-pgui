@@ -7,22 +7,22 @@ spec:
   template:
     spec:
       containers:
-        - name: create-topics
-          image: apache/kafka:4.1.1
-          command:
-            - /bin/sh
-            - -c
-            - |
-              # Wait for Kafka to be ready
-              echo "Waiting for Kafka to be ready..."
-              until nc -z kafka 9092; do
-                echo "Waiting for Kafka..."
-                sleep 5
-              done
-
-              # Create survey topic
-              /opt/bitnami/kafka/bin/kafka-topics.sh --create             --bootstrap-server kafka:9092             --topic survey-topic             --partitions 3             --replication-factor 1             --config retention.ms=604800000             --if-not-exists
-
-              echo "Kafka topics created successfully"
+      - name: create-topics
+        image: bitnami/kafka:3.7
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Wait for Kafka to be ready
+          echo "Waiting for Kafka to be ready..."
+          until nc -z kafka 9092; do
+            echo "Waiting for Kafka..."
+            sleep 5
+          done
+          
+          # Create survey topic
+          /opt/bitnami/kafka/bin/kafka-topics.sh --create             --bootstrap-server kafka:9092             --topic survey-topic             --partitions 3             --replication-factor 1             --config retention.ms=604800000             --if-not-exists
+          
+          echo "Kafka topics created successfully"
       restartPolicy: OnFailure
   backoffLimit: 3

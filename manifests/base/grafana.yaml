@@ -66,25 +66,6 @@ spec:
           name: grafana-dashboards
 ---
 apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-dashboard-provisioning
-  namespace: davtrowebdbvault
-data:
-  dashboards.yaml: |
-    apiVersion: 1
-    providers:
-    - name: 'default'
-      orgId: 1
-      folder: ''
-      type: file
-      disableDeletion: false
-      updateIntervalSeconds: 10
-      allowUiUpdates: true
-      options:
-        path: /var/lib/grafana/dashboards
----
-apiVersion: v1
 kind: Service
 metadata:
   name: grafana-service
@@ -108,3 +89,22 @@ spec:
   resources:
     requests:
       storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provisioning
+  namespace: davtrowebdbvault
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 10
+      allowUiUpdates: true
+      options:
+        path: /var/lib/grafana/dashboards

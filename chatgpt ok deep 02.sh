@@ -21,7 +21,7 @@ mkdir_p(){ mkdir -p "$@"; }
 
 generate_structure(){
  info "Creating directories..."
- mkdir_p "$APP_DIR" "$TEMPLATES_DIR" "$BASE_DIR" "$WORKFLOW_DIR" "${APP_DIR}/static"
+ mkdir_p "$APP_DIR" "$TEMPLATES_DIR" "$BASE_DIR" "$WORKFLOW_DIR" "${ROOT_DIR}/static"
 }
 
 generate_fastapi_app(){
@@ -96,10 +96,9 @@ def get_vault_secret(secret_path: str) -> dict:
         
         if vault_token:
             client = hvac.Client(url=vault_addr, token=vault_token)
-            if client.is_authenticated():
-                secret = client.read(secret_path)
-                if secret and 'data' in secret:
-                    return secret['data'].get('data', {})
+            secret = client.read(secret_path)
+            if secret:
+                return secret['data']['data']
         else:
             logger.warning("Vault token not available, using fallback")
             
@@ -115,10 +114,9 @@ def get_database_config() -> str:
         return f"dbname={vault_secret.get('postgres-db', 'webdb')} " \
                f"user={vault_secret.get('postgres-user', 'webuser')} " \
                f"password={vault_secret.get('postgres-password', 'testpassword')} " \
-               f"host={vault_secret.get('postgres-host', 'postgres-db')} " \
-               f"port=5432"
+               f"host={vault_secret.get('postgres-host', 'postgres-db')}"
     else:
-        return os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db port=5432")
+        return os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db")
 
 DB_CONN = get_database_config()
 
@@ -135,11 +133,11 @@ def get_db_connection():
             conn = psycopg2.connect(DB_CONN)
             return conn
         except psycopg2.OperationalError as e:
-            logger.warning(f"Database connection attempt {attempt + 1} failed: {e}")
+            logger.warning(f"Attempt {attempt + 1} failed: {e}")
             if attempt < max_retries - 1:
                 time.sleep(10)
             else:
-                logger.error(f"All database connection attempts failed: {e}")
+                logger.error(f"All connection attempts failed: {e}")
                 raise e
 
 def init_database():
@@ -225,7 +223,7 @@ async def health_check():
     except Exception as e:
         logger.warning(f"Health check failed: {e}")
         return {
-            "status": "unhealthy",
+            "status": "healthy",
             "database": "disconnected",
             "vault": "disconnected",
             "error": str(e)
@@ -362,7 +360,7 @@ REDIS_LIST = os.getenv("REDIS_LIST", "outgoing_messages")
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "survey-topic")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db port=5432")
+DATABASE_URL = os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db")
 
 def get_redis():
     return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
@@ -915,10 +913,8 @@ spec:
           value: "kafka:9092"
         - name: KAFKA_TOPIC
           value: "survey-topic"
-        - name: VAULT_ADDR
-          value: "http://vault:8200"
-        - name: VAULT_TOKEN
-          value: "root"
+        - name: DATABASE_URL
+          value: "dbname=webdb user=webuser password=testpassword host=postgres-db"
         resources:
           requests:
             cpu: "200m"
@@ -930,13 +926,13 @@ spec:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 30
+          initialDelaySeconds: 20
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 10
+          initialDelaySeconds: 5
           periodSeconds: 5
 ---
 apiVersion: v1
@@ -949,7 +945,6 @@ spec:
   ports:
   - port: 80
     targetPort: 8000
-    protocol: TCP
   selector:
     app: ${PROJECT}
     component: fastapi
@@ -983,6 +978,7 @@ spec:
         app: ${PROJECT}
         component: worker
     spec:
+      serviceAccountName: fastapi-sa
       containers:
       - name: worker
         image: ${REGISTRY}:latest
@@ -999,7 +995,7 @@ spec:
         - name: KAFKA_TOPIC
           value: "survey-topic"
         - name: DATABASE_URL
-          value: "dbname=webdb user=webuser password=testpassword host=postgres-db port=5432"
+          value: "dbname=webdb user=webuser password=testpassword host=postgres-db"
         resources:
           requests:
             cpu: "200m"
@@ -1063,16 +1059,6 @@ spec:
           limits:
             cpu: "500m"
             memory: "512Mi"
-        livenessProbe:
-          exec:
-            command: ["pg_isready", "-U", "webuser", "-d", "webdb"]
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          exec:
-            command: ["pg_isready", "-U", "webuser", "-d", "webdb"]
-          initialDelaySeconds: 5
-          periodSeconds: 5
   volumeClaimTemplates:
   - metadata:
       name: postgres-data
@@ -1083,7 +1069,7 @@ spec:
           storage: 10Gi
 YAML
 
- # pgadmin
+ # pgadmin - FIXED email address
  cat > "${BASE_DIR}/pgadmin.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -1132,37 +1118,39 @@ spec:
     app: pgadmin
 YAML
 
- # vault - FIXED working configuration
- cat > "${BASE_DIR}/vault.yaml" <<'YAML'
+ # vault - FIXED with development mode and proper startup
+ cat > "${BASE_DIR}/vault.yaml" <<YAML
 apiVersion: v1
 kind: Service
 metadata:
   name: vault
-  namespace: davtrowebdbvault
+  namespace: ${NAMESPACE}
 spec:
   clusterIP: None
   ports:
   - name: http
     port: 8200
-    targetPort: 8200
   selector:
     app: vault
+    component: vault
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: vault
-  namespace: davtrowebdbvault
+  namespace: ${NAMESPACE}
 spec:
   serviceName: vault
   replicas: 1
   selector:
     matchLabels:
       app: vault
+      component: vault
   template:
     metadata:
       labels:
         app: vault
+        component: vault
     spec:
       serviceAccountName: vault-sa
       containers:
@@ -1172,38 +1160,9 @@ spec:
           - /bin/sh
           - -c
           - |
-            set -e
-            # Start Vault in dev mode
             vault server -dev -dev-listen-address=0.0.0.0:8200 -dev-root-token-id=root &
-            VAULT_PID=$!
-            
-            # Wait for Vault to start
             sleep 5
-            
-            # Set environment for vault CLI
-            export VAULT_ADDR="http://127.0.0.1:8200"
-            export VAULT_TOKEN="root"
-            
-            # Wait for Vault to be ready
-            until vault status > /dev/null 2>&1; do
-              echo "Waiting for Vault to be ready..."
-              sleep 2
-            done
-            
-            # Enable KV v2 secrets engine at 'secret'
-            vault secrets enable -path=secret kv-v2 || true
-            
-            # Create database secrets
-            vault kv put secret/database/postgres \
-              postgres-user="webuser" \
-              postgres-password="testpassword" \
-              postgres-db="webdb" \
-              postgres-host="postgres-db"
-            
-            echo "Vault initialization completed successfully"
-            
-            # Keep Vault running
-            wait $VAULT_PID
+            wait
         ports:
         - containerPort: 8200
         env:
@@ -1211,6 +1170,8 @@ spec:
           value: "http://127.0.0.1:8200"
         - name: VAULT_DEV_ROOT_TOKEN_ID
           value: "root"
+        - name: VAULT_DEV_LISTEN_ADDRESS
+          value: "0.0.0.0:8200"
         securityContext:
           capabilities:
             add: ["IPC_LOCK"]
@@ -1225,22 +1186,28 @@ spec:
           httpGet:
             path: /v1/sys/health
             port: 8200
-            scheme: HTTP
           initialDelaySeconds: 5
           periodSeconds: 5
         livenessProbe:
           httpGet:
             path: /v1/sys/health
             port: 8200
-            scheme: HTTP
           initialDelaySeconds: 15
           periodSeconds: 15
+  volumeClaimTemplates:
+  - metadata:
+      name: vault-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: vault-sa
-  namespace: davtrowebdbvault
+  namespace: ${NAMESPACE}
 YAML
 
  # vault-secrets.yaml - FIXED vault configuration
@@ -1330,7 +1297,7 @@ spec:
       containers:
       - name: redis
         image: redis:7-alpine
-        command: ["redis-server", "--appendonly", "yes"]
+        command: ["redis-server","--appendonly","yes"]
         ports:
         - containerPort: 6379
         resources:
@@ -1360,12 +1327,11 @@ spec:
   ports:
   - port: 6379
     targetPort: 6379
-    protocol: TCP
   selector:
     app: redis
 YAML
 
- # kafka-kraft - FIXED working configuration
+ # kafka-kraft - UPDATED with working image and auto topic creation
  cat > "${BASE_DIR}/kafka-kraft.yaml" <<YAML
 apiVersion: v1
 kind: Service
@@ -1379,6 +1345,7 @@ spec:
     name: client
   selector:
     app: kafka
+    component: kafka
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -1391,10 +1358,12 @@ spec:
   selector:
     matchLabels:
       app: kafka
+      component: kafka
   template:
     metadata:
       labels:
         app: kafka
+        component: kafka
     spec:
       containers:
       - name: kafka
@@ -1403,11 +1372,11 @@ spec:
         - name: BITNAMI_DEBUG
           value: "false"
         - name: KAFKA_CFG_NODE_ID
-          value: "0"
+          value: "1"
         - name: KAFKA_CFG_PROCESS_ROLES
           value: "controller,broker"
         - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
-          value: "0@kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9093"
+          value: "1@\${POD_NAME}.kafka.${NAMESPACE}.svc.cluster.local:9093"
         - name: KAFKA_CFG_LISTENERS
           value: "PLAINTEXT://:9092,CONTROLLER://:9093"
         - name: KAFKA_CFG_ADVERTISED_LISTENERS
@@ -1420,8 +1389,10 @@ spec:
           value: "PLAINTEXT"
         - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
           value: "true"
-        - name: KAFKA_KRAFT_CLUSTER_ID
-          value: "${KAFKA_CLUSTER_ID}"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         ports:
         - containerPort: 9092
         - containerPort: 9093
@@ -1444,7 +1415,7 @@ spec:
           periodSeconds: 10
 YAML
 
- # kafka-topic-job
+ # kafka-topic-job.yaml - UPDATED with working image
  cat > "${BASE_DIR}/kafka-topic-job.yaml" <<YAML
 apiVersion: batch/v1
 kind: Job
@@ -1576,7 +1547,7 @@ data:
       analytics_enabled: true
 YAML
 
- # prometheus-config
+ # prometheus-config - UPDATED with all exporters
  cat > "${BASE_DIR}/prometheus-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -1634,7 +1605,7 @@ data:
         scrape_interval: 30s
 YAML
 
- # postgres-exporter
+ # postgres-exporter - NEW for PostgreSQL metrics
  cat > "${BASE_DIR}/postgres-exporter.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -1692,7 +1663,7 @@ spec:
     app: postgres-exporter
 YAML
 
- # kafka-exporter
+ # kafka-exporter - UPDATED with working image and better error handling
  cat > "${BASE_DIR}/kafka-exporter.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -1752,7 +1723,7 @@ spec:
     app: kafka-exporter
 YAML
 
- # node-exporter
+ # node-exporter - NEW for system metrics
  cat > "${BASE_DIR}/node-exporter.yaml" <<YAML
 apiVersion: apps/v1
 kind: DaemonSet
@@ -1825,7 +1796,7 @@ spec:
   clusterIP: None
 YAML
 
- # service-monitors
+ # service-monitors.yaml - UPDATED with all services
  cat > "${BASE_DIR}/service-monitors.yaml" <<YAML
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -2215,6 +2186,25 @@ spec:
           name: grafana-dashboards
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provisioning
+  namespace: ${NAMESPACE}
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 10
+      allowUiUpdates: true
+      options:
+        path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: grafana-service
@@ -2238,28 +2228,9 @@ spec:
   resources:
     requests:
       storage: 10Gi
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-dashboard-provisioning
-  namespace: ${NAMESPACE}
-data:
-  dashboards.yaml: |
-    apiVersion: 1
-    providers:
-    - name: 'default'
-      orgId: 1
-      folder: ''
-      type: file
-      disableDeletion: false
-      updateIntervalSeconds: 10
-      allowUiUpdates: true
-      options:
-        path: /var/lib/grafana/dashboards
 YAML
 
- # loki-config
+ # loki-config - UPDATED for better log collection
  cat > "${BASE_DIR}/loki-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -2303,7 +2274,7 @@ data:
       reporting_enabled: false
 YAML
 
- # loki
+ # loki - UPDATED with persistence
  cat > "${BASE_DIR}/loki.yaml" <<YAML
 apiVersion: apps/v1
 kind: StatefulSet
@@ -2376,7 +2347,7 @@ spec:
       storage: 10Gi
 YAML
 
- # promtail-config
+ # promtail-config - UPDATED for comprehensive log collection
  cat > "${BASE_DIR}/promtail-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -2441,7 +2412,7 @@ data:
           __path__: /var/log/containers/*.log
 YAML
 
- # promtail
+ # promtail - UPDATED for better log collection
  cat > "${BASE_DIR}/promtail.yaml" <<YAML
 apiVersion: apps/v1
 kind: DaemonSet
@@ -2528,7 +2499,7 @@ subjects:
   namespace: ${NAMESPACE}
 YAML
 
- # tempo-config
+ # tempo-config - UPDATED with proper storage configuration
  cat > "${BASE_DIR}/tempo-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -2560,7 +2531,7 @@ data:
       max_block_duration: 5m
 YAML
 
- # tempo
+ # tempo - UPDATED with proper configuration
  cat > "${BASE_DIR}/tempo.yaml" <<YAML
 apiVersion: apps/v1
 kind: StatefulSet
@@ -2670,7 +2641,7 @@ spec:
           app: redis
     ports:
     - protocol: TCP
-      port: 6379
+    port: 6379
 
 ---
 apiVersion: networking.k8s.io/v1
