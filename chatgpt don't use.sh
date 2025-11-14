@@ -786,42 +786,58 @@ generate_github_actions(){
  cat > "${WORKFLOW_DIR}/ci-cd.yaml" <<'YAML'
 name: CI/CD Build & Deploy
 on:
- push:
-   branches: [ "main" ]
- workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
 env:
- REGISTRY: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+  REGISTRY: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+  IMAGE_NAME: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+
 permissions:
- contents: read
- packages: write
+  contents: read
+  packages: write
+
 jobs:
- build-and-push:
-   runs-on: ubuntu-latest
-   steps:
-     - name: Checkout
-       uses: actions/checkout@v4
-     - name: Set up QEMU
-       uses: docker/setup-qemu-action@v2
-     - name: Set up Buildx
-       uses: docker/setup-buildx-action@v3
-     - name: Log in to GHCR
-       uses: docker/login-action@v3
-       with:
-         registry: ghcr.io
-         username: ${{ github.actor }}
-         password: ${{ secrets.GHCR_PAT }}
-     - name: Build and push image
-       uses: docker/build-push-action@v5
-       with:
-         context: .
-         file: ./Dockerfile
-         push: true
-         platforms: linux/amd64
-         tags: |
-           ${{ env.REGISTRY }}:latest
-           ${{ env.REGISTRY }}:${{ github.sha }}
-         cache-from: type=registry,ref=${{ env.REGISTRY }}:latest
-         cache-to: type:inline
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=,suffix=-{{date 'YYYYMMDD'}}-{{sha}},format=short
+            type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 YAML
 }
 
@@ -2120,104 +2136,13 @@ generate_readme(){
 - network-policies.yaml - Network security policies
 - service-monitors.yaml - Prometheus service monitoring
 
-## 📊 Architecture Diagram
-
-\`\`\`
-┌─────────────────────────────────────────────────────────────────┐
-│                    KUBERNETES CLUSTER                           │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │   INGRESS   │    │  ARGOCD     │    │   KYVERNO POLICY    │  │
-│  │ (nginx)     │◄───┤ (GitOps)    │────│ (Security - Audit)  │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│          │                                                      │
-│          ▼                                                      │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │   FASTAPI   │────│    REDIS    │────│    APACHE KAFKA     │  │
-│  │   (App)     │    │  (Queue)    │    │   (v4.1 - KRaft)    │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│          │                            │          │              │
-│          │                            │          ▼              │
-│          ▼                            │  ┌─────────────┐        │
-│  ┌─────────────┐                      │  │  KAFKA UI   │        │
-│  │ POSTGRESQL  │◄─────────────────────┘  │ (Monitoring)│        │
-│  │  (Database) │                         └─────────────┘        │
-│  └─────────────┘                                                 │
-│          │                                                      │
-│          ▼                                                      │
-│  ┌─────────────┐                                                │
-│  │   PGADMIN   │                                                │
-│  │   (Admin)   │                                                │
-│  └─────────────┘                                                │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                      MONITORING STACK                           │
-│                                                                 │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │ PROMETHEUS  │◄───│   GRAFANA   │    │      LOKI           │  │
-│  │ (Metrics)   │    │ (Dashboards)│    │    (Logging)        │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│          ▲                            │          ▲              │
-│          │                            │          │              │
-│  ┌───────┴────────┐                   │  ┌───────┴────────┐     │
-│  │  Service       │                   │  │   PROMTAIL     │     │
-│  │  Discovery     │                   │  │ (Log Agent)    │     │
-│  └────────────────┘                   │  └────────────────┘     │
-│                                       │                         │
-│  ┌─────────────┐                      │  ┌─────────────────────┐│
-│  │   TEMPO     │                      │  │   APPLICATIONS      ││
-│  │ (Tracing)   │                      │  │ (FastAPI, Worker)   ││
-│  └─────────────┘                      │  └─────────────────────┘│
-│          ▲                            │                         │
-│          │                            │                         │
-│  ┌───────┴────────┐                   │                         │
-│  │  Distributed   │                   │                         │
-│  │   Tracing      │                   │                         │
-│  └────────────────┘                   │                         │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                      SECURITY (DEV MODE)                        │
-│                                                                 │
-│  ┌─────────────┐                                                │
-│  │    VAULT    │                                                │
-│  │  (Secrets)  │──────────────────────────────────────┐         │
-│  └─────────────┘                                      │         │
-│    (Dev Mode)                                         ▼         │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │ Database    │    │   Redis     │    │   Kafka             │  │
-│  │ Credentials │    │  Password   │    │  Credentials        │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-\`\`\`
-
-## All Resources Generated:
-- ✅ app-deployment
-- ✅ postgres-db  
-- ✅ pgadmin (FIXED email)
-- ✅ vault (FIXED CrashLoopBackOff)
-- ✅ vault-secrets (NEW)
-- ✅ vault-job (NEW)
-- ✅ redis
-- ✅ **kafka-kraft (USING APACHE KAFKA 4.1)**
-- ✅ kafka-topics (NEW)
-- ✅ kafka-ui
-- ✅ fastapi-config (NEW)
-- ✅ prometheus-config
-- ✅ service-monitors (NEW)
-- ✅ prometheus
-- ✅ grafana-datasource
-- ✅ grafana-dashboards (NEW)
-- ✅ grafana
-- ✅ loki-config
-- ✅ loki
-- ✅ promtail-config
-- ✅ promtail
-- ✅ tempo-config
-- ✅ tempo
-- ✅ network-policies (NEW)
-- ✅ ingress
-- ✅ kyverno-policy (FIXED to Audit mode)
+### 6. ✅ GitHub Actions Authentication - FIXED
+**Problem**: Docker build failed with "401 Unauthorized: access token has insufficient scopes"
+**Solution**: 
+- Updated workflow to use `GITHUB_TOKEN` instead of `GHCR_PAT`
+- Simplified authentication process
+- Added proper metadata extraction
+- Enabled cache for faster builds
 
 ## 🛠️ Quick Start
 
@@ -2225,7 +2150,7 @@ generate_readme(){
 # Generate all files
 ./chatgpt.sh generate
 
-# Build and push container
+# Build and push container (local)
 docker build -t ${REGISTRY}:latest .
 docker push ${REGISTRY}:latest  
 
@@ -2242,15 +2167,15 @@ kubectl logs statefulset/kafka -n ${NAMESPACE}
 kubectl wait --for=condition=complete job/vault-init -n ${NAMESPACE}
 \`\`\`
 
-## 🔧 Kafka Configuration Details
+## 🔧 GitHub Actions Setup
 
-**Using**: Official Apache Kafka 4.1 with KRaft (no Zookeeper)
-**Image**: `apache/kafka:4.1`
-**Features**:
-- Single node KRaft cluster
-- PLAINTEXT listeners on port 9092
-- Controller on port 9093
-- Automatic topic creation enabled
+The CI/CD workflow now uses the built-in \`GITHUB_TOKEN\` which automatically has the correct permissions for GHCR.
+
+**No additional secrets required!** The workflow will:
+1. Automatically authenticate to GitHub Container Registry
+2. Build multi-architecture images (linux/amd64, linux/arm64)
+3. Push images with proper tags
+4. Use GitHub Actions cache for faster builds
 
 ## 🌐 Access Points
 
@@ -2270,7 +2195,7 @@ kubectl wait --for=condition=complete job/vault-init -n ${NAMESPACE}
 - **Kyverno** policy is in Audit mode for development
 - All components have proper health checks and resource limits
 - Survey system should work end-to-end: Web → Redis → Kafka → PostgreSQL
-- **All missing YAML files have been implemented** with proper configurations
+- **GitHub Actions authentication fixed** - uses built-in GITHUB_TOKEN
 README
 }
 
@@ -2288,14 +2213,11 @@ generate_all(){
  echo "🎯 CHANGED TO APACHE KAFKA 4.1 (official image)" 
  echo "🎯 Fixed pgAdmin email validation"
  echo "🎯 Fixed Kyverno policy restrictions"
- echo "🎯 ADDED ALL MISSING YAML FILES:"
- echo "   - vault-secrets.yaml"
- echo "   - vault-job.yaml" 
- echo "   - fastapi-config.yaml"
- echo "   - kafka-topics.yaml"
- echo "   - grafana-dashboards.yaml"
- echo "   - network-policies.yaml"
- echo "   - service-monitors.yaml"
+ echo "🎯 ADDED ALL MISSING YAML FILES"
+ echo "🎯 FIXED GitHub Actions authentication"
+ echo "   - Uses GITHUB_TOKEN instead of GHCR_PAT"
+ echo "   - Multi-architecture builds"
+ echo "   - Proper caching"
  echo ""
  echo "📁 app/ - FastAPI application with survey system"
  echo "📁 manifests/base/ - ALL Kubernetes manifests"
@@ -2304,8 +2226,8 @@ generate_all(){
  echo "📄 README.md - Complete documentation with fixes"
  echo
  echo "🚀 Next steps:"
- echo "1. Build: docker build -t ${REGISTRY}:latest ."
- echo "2. Push: docker push ${REGISTRY}:latest"
+ echo "1. Commit and push to GitHub"
+ echo "2. GitHub Actions will automatically build and push image"
  echo "3. Deploy: kubectl apply -k manifests/base"
  echo "4. Check: kubectl get pods -n ${NAMESPACE}"
  echo "5. Access: http://app.${PROJECT}.local"
