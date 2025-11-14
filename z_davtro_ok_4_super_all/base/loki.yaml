@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: tempo
+  name: loki
   namespace: davtrowebdbvault
 spec:
-  serviceName: tempo
+  serviceName: loki
   replicas: 1
   selector:
     matchLabels:
-      app: tempo
+      app: loki
   template:
     metadata:
       labels:
-        app: tempo
+        app: loki
     spec:
       containers:
-      - name: tempo
-        image: grafana/tempo:2.4.2
+      - name: loki
+        image: grafana/loki:2.9.2
         ports:
-        - containerPort: 3200
+        - containerPort: 3100
         resources:
           requests:
             cpu: "100m"
@@ -30,11 +30,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: tempo
+  name: loki
   namespace: davtrowebdbvault
 spec:
   ports:
-  - port: 3200
-    targetPort: 3200
+  - port: 3100
+    targetPort: 3100
   selector:
-    app: tempo
+    app: loki

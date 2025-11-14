@@ -8,18 +8,12 @@ resources:
  - postgres-db.yaml
  - pgadmin.yaml
  - vault.yaml
- - vault-secrets.yaml
- - vault-job.yaml
  - redis.yaml
  - kafka-kraft.yaml
- - kafka-topics.yaml
  - kafka-ui.yaml
- - fastapi-config.yaml
  - prometheus-config.yaml
- - service-monitors.yaml
  - prometheus.yaml
  - grafana-datasource.yaml
- - grafana-dashboards.yaml
  - grafana.yaml
  - loki-config.yaml
  - loki.yaml
@@ -27,7 +21,6 @@ resources:
  - promtail.yaml
  - tempo-config.yaml
  - tempo.yaml
- - network-policies.yaml
  - ingress.yaml
  - kyverno-policy.yaml
 

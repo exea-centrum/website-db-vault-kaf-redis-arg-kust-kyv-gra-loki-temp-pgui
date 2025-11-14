@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: davtrowebdbvault
+data:
+  fastapi-dashboard.json: |
+    {
+      "dashboard": {
+        "title": "FastAPI Application Metrics",
+        "panels": [
+          {
+            "title": "HTTP Requests",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total[5m])",
+                "legendFormat": "Requests/s"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  kafka-dashboard.json: |
+    {
+      "dashboard": {
+        "title": "Kafka Metrics", 
+        "panels": [
+          {
+            "title": "Messages In",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(kafka_topic_messages_in_total[5m])",
+                "legendFormat": "Messages/s"
+              }
+            ]
+          }
+        ]
+      }
+    }

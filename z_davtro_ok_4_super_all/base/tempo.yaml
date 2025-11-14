@@ -1,0 +1,56 @@
+# Zastępuje pliki tempo-config.yaml ORAZ tempo.yaml (jako definicje StatefulSet)
+# --------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tempo
+  namespace: davtrowebdbvault
+  labels:
+    app: tempo
+    app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tempo
+  serviceName: tempo
+  template:
+    metadata:
+      labels:
+        app: tempo
+    spec:
+      containers:
+        - name: tempo
+          image: grafana/tempo:2.4.2
+          ports:
+            # Port HTTP dla metryk i zapytań (z tempo.yaml)
+            - containerPort: 3200
+              protocol: TCP
+            # Port gRPC (z tempo.yaml)
+            - containerPort: 9095
+              protocol: TCP
+              name: grpc
+          resources:
+            limits:
+              cpu: "250m"
+              memory: "512Mi"
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+          volumeMounts:
+            # Mount dla danych (z obu plików)
+            - name: tempo-storage
+              mountPath: /tmp/tempo
+            # Mount dla konfiguracji (z tempo.yaml)
+            - name: tempo-config
+              mountPath: /etc/tempo
+          args:
+            # Użycie pliku konfiguracyjnego z ConfigMap (z tempo.yaml)
+            - -config.file=/etc/tempo/tempo.yaml
+      volumes:
+        - name: tempo-storage
+          emptyDir: {}
+        # Odwołanie do ConfigMap (z tempo.yaml)
+        - name: tempo-config
+          configMap:
+            name: tempo-config

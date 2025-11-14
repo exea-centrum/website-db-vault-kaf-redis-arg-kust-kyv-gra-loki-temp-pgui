@@ -1,24 +1,28 @@
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
-  name: tempo
+  name: grafana
   namespace: davtrowebdbvault
 spec:
-  serviceName: tempo
   replicas: 1
   selector:
     matchLabels:
-      app: tempo
+      app: grafana
   template:
     metadata:
       labels:
-        app: tempo
+        app: grafana
     spec:
       containers:
-      - name: tempo
-        image: grafana/tempo:2.4.2
+      - name: grafana
+        image: grafana/grafana:10.2.2
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: admin
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: admin
         ports:
-        - containerPort: 3200
+        - containerPort: 3000
         resources:
           requests:
             cpu: "100m"
@@ -30,11 +34,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: tempo
+  name: grafana-service
   namespace: davtrowebdbvault
 spec:
+  type: ClusterIP
   ports:
-  - port: 3200
-    targetPort: 3200
+  - port: 80
+    targetPort: 3000
   selector:
-    app: tempo
+    app: grafana

@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: tempo-config
+  name: loki-config
   namespace: davtrowebdbvault
 data:
-  tempo.yaml: |
+  loki.yaml: |
     server:
-      http_listen_port: 3200
+      http_listen_port: 3100

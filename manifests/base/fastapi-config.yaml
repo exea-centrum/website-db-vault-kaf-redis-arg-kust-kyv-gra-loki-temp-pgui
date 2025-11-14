@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fastapi-config
+  namespace: davtrowebdbvault
+data:
+  config.yaml: |
+    app:
+      name: "Dawid Trojanowski - Personal Website"
+      version: "1.0.0"
+      debug: false
+    
+    database:
+      host: "postgres-db"
+      port: 5432
+      name: "webdb"
+      user: "webuser"
+    
+    redis:
+      host: "redis"
+      port: 6379
+      list_name: "outgoing_messages"
+    
+    kafka:
+      bootstrap_servers: "kafka:9092"
+      topic: "survey-topic"
+    
+    vault:
+      url: "http://vault:8200"
+      token: "root"
+      secret_path: "secret/data/database/postgres"
+    
+    monitoring:
+      enabled: true
+      metrics_port: 8000
+    
+    features:
+      survey_enabled: true
+      contact_form_enabled: true
+      analytics_enabled: true

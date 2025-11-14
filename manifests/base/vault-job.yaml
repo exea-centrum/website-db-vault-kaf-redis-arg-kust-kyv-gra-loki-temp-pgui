@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-init
+  namespace: davtrowebdbvault
+spec:
+  template:
+    spec:
+      serviceAccountName: vault-sa
+      containers:
+      - name: vault-init
+        image: hashicorp/vault:1.15.0
+        command: ["/bin/sh", "/scripts/init-vault.sh"]
+        volumeMounts:
+        - name: vault-scripts
+          mountPath: /scripts
+        env:
+        - name: VAULT_ADDR
+          value: "http://vault:8200"
+        - name: VAULT_TOKEN  
+          value: "root"
+      volumes:
+      - name: vault-scripts
+        configMap:
+          name: vault-init
+          defaultMode: 0755
+      restartPolicy: OnFailure
+  backoffLimit: 3

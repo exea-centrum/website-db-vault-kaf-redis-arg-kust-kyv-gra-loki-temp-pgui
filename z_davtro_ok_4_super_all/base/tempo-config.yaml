@@ -1,0 +1,42 @@
+# Nowy plik, który dostarcza konfigurację dla StatefulSet
+# --------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: davtrowebdbvault
+  labels:
+    app: tempo
+    app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+data:
+  # Klucz 'tempo.yaml' musi pasować do tego, co jest użyte w -config.file w StatefulSet
+  tempo.yaml: |
+    # Podstawowa konfiguracja Tempo (przykład)
+    server:
+      http_listen_port: 3200
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+            http:
+
+    ingester:
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+        final_sleep: 0s
+      
+    compactor:
+      compaction:
+        compaction_window: 1h
+        block_retention: 24h
+      
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /tmp/tempo/traces

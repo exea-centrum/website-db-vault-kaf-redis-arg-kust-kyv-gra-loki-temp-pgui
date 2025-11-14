@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: davtrowebdbvault
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      containers:
+        - name: promtail
+          image: grafana/promtail:2.9.2
+          args:
+            - -config.file=/etc/promtail/config.yml
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+            - name: logs
+              mountPath: /var/log
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: promtail-config
+        - name: logs
+          hostPath:
+            path: /var/log

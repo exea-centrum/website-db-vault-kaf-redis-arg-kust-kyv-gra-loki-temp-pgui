@@ -1164,73 +1164,6 @@ metadata:
   namespace: ${NAMESPACE}
 YAML
 
- # vault-secrets.yaml - FIXED vault configuration
- cat > "${BASE_DIR}/vault-secrets.yaml" <<YAML
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: vault-init
-  namespace: ${NAMESPACE}
-data:
-  init-vault.sh: |
-    #!/bin/bash
-    sleep 10
-    export VAULT_ADDR="http://vault:8200"
-    export VAULT_TOKEN="root"
-    
-    # Enable KV secrets engine
-    vault secrets enable -path=secret kv-v2
-    
-    # Create database secrets
-    vault kv put secret/database/postgres \
-      postgres-user="webuser" \
-      postgres-password="testpassword" \
-      postgres-db="webdb" \
-      postgres-host="postgres-db"
-    
-    # Create Redis secrets
-    vault kv put secret/redis \
-      redis-password=""
-    
-    # Create Kafka secrets  
-    vault kv put secret/kafka \
-      kafka-brokers="kafka:9092"
-    
-    echo "Vault initialization completed"
-YAML
-
- # vault-job.yaml - FIXED job to initialize Vault
- cat > "${BASE_DIR}/vault-job.yaml" <<YAML
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: vault-init
-  namespace: ${NAMESPACE}
-spec:
-  template:
-    spec:
-      serviceAccountName: vault-sa
-      containers:
-      - name: vault-init
-        image: hashicorp/vault:1.15.0
-        command: ["/bin/sh", "/scripts/init-vault.sh"]
-        volumeMounts:
-        - name: vault-scripts
-          mountPath: /scripts
-        env:
-        - name: VAULT_ADDR
-          value: "http://vault:8200"
-        - name: VAULT_TOKEN  
-          value: "root"
-      volumes:
-      - name: vault-scripts
-        configMap:
-          name: vault-init
-          defaultMode: 0755
-      restartPolicy: OnFailure
-  backoffLimit: 3
-YAML
-
  # redis - FIXED with resources
  cat > "${BASE_DIR}/redis.yaml" <<YAML
 apiVersion: apps/v1
@@ -1377,24 +1310,6 @@ spec:
           periodSeconds: 10
 YAML
 
- # kafka-topics.yaml - FIXED Kafka topic configuration
- cat > "${BASE_DIR}/kafka-topics.yaml" <<YAML
-apiVersion: kafka.strimzi.io/v1beta2
-kind: KafkaTopic
-metadata:
-  name: survey-topic
-  namespace: ${NAMESPACE}
-  labels:
-    strimzi.io/cluster: kafka-cluster
-spec:
-  partitions: 3
-  replicas: 1
-  config:
-    retention.ms: 604800000
-    segment.bytes: 1073741824
-    cleanup.policy: delete
-YAML
-
  # kafka-ui
  cat > "${BASE_DIR}/kafka-ui.yaml" <<YAML
 apiVersion: apps/v1
@@ -1445,50 +1360,6 @@ spec:
     app: kafka-ui
 YAML
 
- # fastapi-config.yaml - FIXED application configuration
- cat > "${BASE_DIR}/fastapi-config.yaml" <<YAML
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: fastapi-config
-  namespace: ${NAMESPACE}
-data:
-  config.yaml: |
-    app:
-      name: "Dawid Trojanowski - Personal Website"
-      version: "1.0.0"
-      debug: false
-    
-    database:
-      host: "postgres-db"
-      port: 5432
-      name: "webdb"
-      user: "webuser"
-    
-    redis:
-      host: "redis"
-      port: 6379
-      list_name: "outgoing_messages"
-    
-    kafka:
-      bootstrap_servers: "kafka:9092"
-      topic: "survey-topic"
-    
-    vault:
-      url: "http://vault:8200"
-      token: "root"
-      secret_path: "secret/data/database/postgres"
-    
-    monitoring:
-      enabled: true
-      metrics_port: 8000
-    
-    features:
-      survey_enabled: true
-      contact_form_enabled: true
-      analytics_enabled: true
-YAML
-
  # prometheus-config
  cat > "${BASE_DIR}/prometheus-config.yaml" <<YAML
 apiVersion: v1
@@ -1513,53 +1384,6 @@ data:
       - job_name: 'kafka'
         static_configs:
           - targets: ['kafka:9092']
-YAML
-
- # service-monitors.yaml - FIXED Prometheus monitoring
- cat > "${BASE_DIR}/service-monitors.yaml" <<YAML
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: fastapi-monitor
-  namespace: ${NAMESPACE}
-spec:
-  selector:
-    matchLabels:
-      app: ${PROJECT}
-      component: fastapi
-  endpoints:
-  - port: http
-    path: /metrics
-    interval: 15s
-
----
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: redis-monitor
-  namespace: ${NAMESPACE}
-spec:
-  selector:
-    matchLabels:
-      app: redis
-  endpoints:
-  - port: redis
-    interval: 30s
-
----
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: postgres-monitor
-  namespace: ${NAMESPACE}
-spec:
-  selector:
-    matchLabels:
-      app: ${PROJECT}
-      component: postgres
-  endpoints:
-  - port: postgres
-    interval: 30s
 YAML
 
  # prometheus
@@ -1627,52 +1451,6 @@ data:
       type: prometheus
       url: http://prometheus-service:9090
       isDefault: true
-YAML
-
- # grafana-dashboards.yaml - FIXED Grafana dashboards
- cat > "${BASE_DIR}/grafana-dashboards.yaml" <<YAML
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-dashboards
-  namespace: ${NAMESPACE}
-data:
-  fastapi-dashboard.json: |
-    {
-      "dashboard": {
-        "title": "FastAPI Application Metrics",
-        "panels": [
-          {
-            "title": "HTTP Requests",
-            "type": "stat",
-            "targets": [
-              {
-                "expr": "rate(http_requests_total[5m])",
-                "legendFormat": "Requests/s"
-              }
-            ]
-          }
-        ]
-      }
-    }
-  kafka-dashboard.json: |
-    {
-      "dashboard": {
-        "title": "Kafka Metrics", 
-        "panels": [
-          {
-            "title": "Messages In",
-            "type": "graph",
-            "targets": [
-              {
-                "expr": "rate(kafka_topic_messages_in_total[5m])",
-                "legendFormat": "Messages/s"
-              }
-            ]
-          }
-        ]
-      }
-    }
 YAML
 
  # grafana
@@ -1893,76 +1671,6 @@ spec:
     app: tempo
 YAML
 
- # network-policies.yaml - FIXED network security
- cat > "${BASE_DIR}/network-policies.yaml" <<YAML
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-fastapi-to-postgres
-  namespace: ${NAMESPACE}
-spec:
-  podSelector:
-    matchLabels:
-      app: ${PROJECT}
-      component: fastapi
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: ${PROJECT}
-          component: postgres
-    ports:
-    - protocol: TCP
-      port: 5432
-
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-fastapi-to-redis
-  namespace: ${NAMESPACE}
-spec:
-  podSelector:
-    matchLabels:
-      app: ${PROJECT}
-      component: fastapi
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: redis
-    ports:
-    - protocol: TCP
-      port: 6379
-
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-worker-to-kafka
-  namespace: ${NAMESPACE}
-spec:
-  podSelector:
-    matchLabels:
-      app: ${PROJECT}
-      component: worker
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: kafka
-          component: kafka
-    ports:
-    - protocol: TCP
-      port: 9092
-YAML
-
  # ingress
  cat > "${BASE_DIR}/ingress.yaml" <<YAML
 apiVersion: networking.k8s.io/v1
@@ -2027,18 +1735,12 @@ resources:
  - postgres-db.yaml
  - pgadmin.yaml
  - vault.yaml
- - vault-secrets.yaml
- - vault-job.yaml
  - redis.yaml
  - kafka-kraft.yaml
- - kafka-topics.yaml
  - kafka-ui.yaml
- - fastapi-config.yaml
  - prometheus-config.yaml
- - service-monitors.yaml
  - prometheus.yaml
  - grafana-datasource.yaml
- - grafana-dashboards.yaml
  - grafana.yaml
  - loki-config.yaml
  - loki.yaml
@@ -2046,7 +1748,6 @@ resources:
  - promtail.yaml
  - tempo-config.yaml
  - tempo.yaml
- - network-policies.yaml
  - ingress.yaml
  - kyverno-policy.yaml
 
@@ -2093,7 +1794,6 @@ generate_readme(){
 **Solution**: 
 - Added development mode with proper startup command
 - Added health checks (readiness and liveness probes)
-- Added Vault initialization job and scripts
 
 ### 2. ✅ Kafka Configuration - FIXED
 **Problem**: Bitnami Kafka had issues
@@ -2109,16 +1809,6 @@ generate_readme(){
 ### 4. ✅ Kyverno Policy - FIXED
 **Problem**: Policy was too restrictive
 **Solution**: Changed to `Audit` mode for development
-
-### 5. ✅ Added Missing YAML Files - FIXED
-**Added**:
-- vault-secrets.yaml - Vault initialization scripts
-- vault-job.yaml - Job to initialize Vault secrets
-- fastapi-config.yaml - Application configuration
-- kafka-topics.yaml - Kafka topic configuration  
-- grafana-dashboards.yaml - Grafana dashboard definitions
-- network-policies.yaml - Network security policies
-- service-monitors.yaml - Prometheus service monitoring
 
 ## 📊 Architecture Diagram
 
@@ -2196,18 +1886,12 @@ generate_readme(){
 - ✅ postgres-db  
 - ✅ pgadmin (FIXED email)
 - ✅ vault (FIXED CrashLoopBackOff)
-- ✅ vault-secrets (NEW)
-- ✅ vault-job (NEW)
 - ✅ redis
 - ✅ **kafka-kraft (USING APACHE KAFKA 4.1)**
-- ✅ kafka-topics (NEW)
 - ✅ kafka-ui
-- ✅ fastapi-config (NEW)
 - ✅ prometheus-config
-- ✅ service-monitors (NEW)
 - ✅ prometheus
 - ✅ grafana-datasource
-- ✅ grafana-dashboards (NEW)
 - ✅ grafana
 - ✅ loki-config
 - ✅ loki
@@ -2215,7 +1899,6 @@ generate_readme(){
 - ✅ promtail
 - ✅ tempo-config
 - ✅ tempo
-- ✅ network-policies (NEW)
 - ✅ ingress
 - ✅ kyverno-policy (FIXED to Audit mode)
 
@@ -2223,7 +1906,7 @@ generate_readme(){
 
 \`\`\`bash
 # Generate all files
-./chatgpt.sh generate
+./unified-stack.sh generate
 
 # Build and push container
 docker build -t ${REGISTRY}:latest .
@@ -2237,9 +1920,6 @@ kubectl get pods -n ${NAMESPACE}
 
 # Check Kafka specifically
 kubectl logs statefulset/kafka -n ${NAMESPACE}
-
-# Initialize Vault secrets
-kubectl wait --for=condition=complete job/vault-init -n ${NAMESPACE}
 \`\`\`
 
 ## 🔧 Kafka Configuration Details
@@ -2270,7 +1950,6 @@ kubectl wait --for=condition=complete job/vault-init -n ${NAMESPACE}
 - **Kyverno** policy is in Audit mode for development
 - All components have proper health checks and resource limits
 - Survey system should work end-to-end: Web → Redis → Kafka → PostgreSQL
-- **All missing YAML files have been implemented** with proper configurations
 README
 }
 
@@ -2288,14 +1967,6 @@ generate_all(){
  echo "🎯 CHANGED TO APACHE KAFKA 4.1 (official image)" 
  echo "🎯 Fixed pgAdmin email validation"
  echo "🎯 Fixed Kyverno policy restrictions"
- echo "🎯 ADDED ALL MISSING YAML FILES:"
- echo "   - vault-secrets.yaml"
- echo "   - vault-job.yaml" 
- echo "   - fastapi-config.yaml"
- echo "   - kafka-topics.yaml"
- echo "   - grafana-dashboards.yaml"
- echo "   - network-policies.yaml"
- echo "   - service-monitors.yaml"
  echo ""
  echo "📁 app/ - FastAPI application with survey system"
  echo "📁 manifests/base/ - ALL Kubernetes manifests"

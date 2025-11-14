@@ -7,7 +7,6 @@
 **Solution**: 
 - Added development mode with proper startup command
 - Added health checks (readiness and liveness probes)
-- Added Vault initialization job and scripts
 
 ### 2. ✅ Kafka Configuration - FIXED
 **Problem**: Bitnami Kafka had issues
@@ -23,16 +22,6 @@
 ### 4. ✅ Kyverno Policy - FIXED
 **Problem**: Policy was too restrictive
 **Solution**: Changed to  mode for development
-
-### 5. ✅ Added Missing YAML Files - FIXED
-**Added**:
-- vault-secrets.yaml - Vault initialization scripts
-- vault-job.yaml - Job to initialize Vault secrets
-- fastapi-config.yaml - Application configuration
-- kafka-topics.yaml - Kafka topic configuration  
-- grafana-dashboards.yaml - Grafana dashboard definitions
-- network-policies.yaml - Network security policies
-- service-monitors.yaml - Prometheus service monitoring
 
 ## 📊 Architecture Diagram
 
@@ -110,18 +99,12 @@
 - ✅ postgres-db  
 - ✅ pgadmin (FIXED email)
 - ✅ vault (FIXED CrashLoopBackOff)
-- ✅ vault-secrets (NEW)
-- ✅ vault-job (NEW)
 - ✅ redis
 - ✅ **kafka-kraft (USING APACHE KAFKA 4.1)**
-- ✅ kafka-topics (NEW)
 - ✅ kafka-ui
-- ✅ fastapi-config (NEW)
 - ✅ prometheus-config
-- ✅ service-monitors (NEW)
 - ✅ prometheus
 - ✅ grafana-datasource
-- ✅ grafana-dashboards (NEW)
 - ✅ grafana
 - ✅ loki-config
 - ✅ loki
@@ -129,7 +112,6 @@
 - ✅ promtail
 - ✅ tempo-config
 - ✅ tempo
-- ✅ network-policies (NEW)
 - ✅ ingress
 - ✅ kyverno-policy (FIXED to Audit mode)
 
@@ -137,7 +119,7 @@
 
 ```bash
 # Generate all files
-./chatgpt.sh generate
+./unified-stack.sh generate
 
 # Build and push container
 docker build -t ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui:latest .
@@ -151,9 +133,6 @@ kubectl get pods -n davtrowebdbvault
 
 # Check Kafka specifically
 kubectl logs statefulset/kafka -n davtrowebdbvault
-
-# Initialize Vault secrets
-kubectl wait --for=condition=complete job/vault-init -n davtrowebdbvault
 ```
 
 ## 🔧 Kafka Configuration Details
@@ -184,4 +163,3 @@ kubectl wait --for=condition=complete job/vault-init -n davtrowebdbvault
 - **Kyverno** policy is in Audit mode for development
 - All components have proper health checks and resource limits
 - Survey system should work end-to-end: Web → Redis → Kafka → PostgreSQL
-- **All missing YAML files have been implemented** with proper configurations
