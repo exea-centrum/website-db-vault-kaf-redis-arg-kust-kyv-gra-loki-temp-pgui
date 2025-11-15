@@ -15,25 +15,27 @@ spec:
     spec:
       containers:
         - name: kafka-ui
-          image: obsidiandynamics/kafdrop:latest # Alternatywa dla Kafka UI
+          image: provectuslabs/kafka-ui:latest # ZMIEŃ OBRAZ - oficjalny Kafka UI
           ports:
-            - containerPort: 9000
+            - containerPort: 8080 # ZMIEŃ PORT na 8080
           env:
-            - name: KAFKA_BROKERCONNECT
-              value: "kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092"
-            - name: JVM_OPTS
-              value: "-Xms32M -Xmx64M"
+            - name: KAFKA_CLUSTERS_0_NAME
+              value: "local"
+            - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+              value: "kafka:9092" # ZMIEŃ NA KRÓTKĄ NAZWĘ
+            - name: KAFKA_CLUSTERS_0_READONLY
+              value: "false"
           resources:
             requests:
               cpu: "100m"
-              memory: "128Mi"
+              memory: "256Mi"
             limits:
               cpu: "200m"
-              memory: "256Mi"
+              memory: "512Mi"
           livenessProbe:
             httpGet:
               path: /
-              port: 9000
+              port: 8080 # ZMIEŃ PORT na 8080
             initialDelaySeconds: 30
             periodSeconds: 10
 ---
@@ -44,7 +46,7 @@ metadata:
   namespace: davtrowebdbvault
 spec:
   ports:
-    - port: 9000
-      targetPort: 9000
+    - port: 8080 # ZMIEŃ PORT na 8080
+      targetPort: 8080
   selector:
     app: kafka-ui
