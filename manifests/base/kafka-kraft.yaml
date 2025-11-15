@@ -15,7 +15,7 @@ data:
     controller.listener.names=CONTROLLER
     inter.broker.listener.name=PLAINTEXT
     auto.create.topics.enable=true
-    
+
     # Log settings
     log.dirs=/tmp/kafka-logs
     num.partitions=1
@@ -24,6 +24,7 @@ data:
     offsets.topic.replication.factor=1
     transaction.state.log.replication.factor=1
     transaction.state.log.min.isr=1
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -67,7 +68,7 @@ spec:
             - |
               echo "Formatting storage..."
               /opt/kafka/bin/kafka-storage.sh format -t $CLUSTER_ID -c /opt/kafka/config/kraft/server.properties
-              
+
               echo "Starting Kafka..."
               /opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/kraft/server.properties
           ports:
@@ -108,4 +109,4 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 8Gi    
+            storage: 8Gi
