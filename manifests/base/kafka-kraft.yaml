@@ -1,4 +1,30 @@
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-kraft-config
+  namespace: davtrowebdbvault
+data:
+  server.properties: |
+    # KRaft Mode Configuration
+    process.roles=controller,broker
+    node.id=0
+    controller.quorum.voters=0@kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9093
+    listeners=PLAINTEXT://:9092,CONTROLLER://:9093
+    advertised.listeners=PLAINTEXT://kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092
+    listener.security.protocol.map=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+    controller.listener.names=CONTROLLER
+    inter.broker.listener.name=PLAINTEXT
+    auto.create.topics.enable=true
+    
+    # Log settings
+    log.dirs=/tmp/kafka-logs
+    num.partitions=1
+    default.replication.factor=1
+    min.insync.replicas=1
+    offsets.topic.replication.factor=1
+    transaction.state.log.replication.factor=1
+    transaction.state.log.min.isr=1
+apiVersion: v1
 kind: Service
 metadata:
   name: kafka
@@ -35,33 +61,15 @@ spec:
           env:
             - name: CLUSTER_ID
               value: "4mUj5vFk3tW7pY0iH2gR8qL6eD9oB1cZ"
-            - name: KAFKA_NODE_ID
-              value: "0"
-            - name: KAFKA_PROCESS_ROLES
-              value: "controller,broker"
-            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
-              value: "0@kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9093"
-            - name: KAFKA_LISTENERS
-              value: "PLAINTEXT://:9092,CONTROLLER://:9093"
-            - name: KAFKA_ADVERTISED_LISTENERS
-              value: "PLAINTEXT://kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092"
-            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
-              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
-            - name: KAFKA_CONTROLLER_LISTENER_NAMES
-              value: "CONTROLLER"
-            - name: KAFKA_INTER_BROKER_LISTENER_NAME
-              value: "PLAINTEXT"
-            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
-              value: "true"
           command:
             - "sh"
             - "-c"
             - |
               echo "Formatting storage..."
-              /opt/kafka/bin/kafka-storage.sh format -t $CLUSTER_ID -c /opt/kafka/config/server.properties
-
+              /opt/kafka/bin/kafka-storage.sh format -t $CLUSTER_ID -c /opt/kafka/config/kraft/server.properties
+              
               echo "Starting Kafka..."
-              /opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties
+              /opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/kraft/server.properties
           ports:
             - containerPort: 9092
             - containerPort: 9093
@@ -87,6 +95,12 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /tmp/kafka-logs
+            - name: kafka-config
+              mountPath: /opt/kafka/config/kraft
+      volumes:
+        - name: kafka-config
+          configMap:
+            name: kafka-kraft-config
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -94,4 +108,4 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 8Gi
+            storage: 8Gi    

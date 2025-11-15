@@ -8,20 +8,26 @@ spec:
     spec:
       containers:
         - name: create-topics
-          image: apache/kafka:4.1.1
+          image: apache/kafka:4.1.0 # Użyj tego samego obrazu
           command:
             - /bin/sh
             - -c
             - |
               # Wait for Kafka to be ready
               echo "Waiting for Kafka to be ready..."
-              until nc -z kafka 9092; do
+              until nc -z kafka-0.kafka.davtrowebdbvault.svc.cluster.local 9092; do
                 echo "Waiting for Kafka..."
                 sleep 5
               done
 
               # Create survey topic
-              /opt/bitnami/kafka/bin/kafka-topics.sh --create             --bootstrap-server kafka:9092             --topic survey-topic             --partitions 3             --replication-factor 1             --config retention.ms=604800000             --if-not-exists
+              /opt/kafka/bin/kafka-topics.sh --create \
+                --bootstrap-server kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092 \
+                --topic survey-topic \
+                --partitions 3 \
+                --replication-factor 1 \
+                --config retention.ms=604800000 \
+                --if-not-exists
 
               echo "Kafka topics created successfully"
       restartPolicy: OnFailure

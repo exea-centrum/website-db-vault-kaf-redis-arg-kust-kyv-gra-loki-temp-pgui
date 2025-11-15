@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: kafka-exporter
-          image: danielqsj/kafka-exporter:latest # Alternatywny obraz
+          image: danielqsj/kafka-exporter:latest
           ports:
             - containerPort: 9308
           env:
