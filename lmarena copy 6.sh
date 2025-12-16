@@ -19,10 +19,13 @@ info(){ printf "🔧 [unified] %s\n" "$*"; }
 mkdir_p(){ mkdir -p "$@"; }
 
 generate_structure(){
+ info "Creating directories..."
  mkdir_p "$APP_DIR" "$TEMPLATES_DIR" "$BASE_DIR" "$WORKFLOW_DIR" "${APP_DIR}/static"
 }
 
 generate_fastapi_app(){
+ info "Generating FastAPI app with survey system..."
+
  cat > "${APP_DIR}/__init__.py" <<'PY'
 # FastAPI Application Package
 PY
@@ -138,6 +141,7 @@ def get_db_connection():
                 time.sleep(10)
             else:
                 logger.error(f"All database connection attempts failed: {e}")
+                raise e
 
 def init_database():
     max_retries = 30
@@ -426,6 +430,7 @@ def get_db_connection():
                 time.sleep(10)
             else:
                 logger.error(f"All database connection attempts failed: {e}")
+                raise e
 
 def save_to_db(item_type, data):
     conn = get_db_connection()
@@ -828,9 +833,11 @@ redis==4.6.0
 REQ
 
  chmod +x "${APP_DIR}/worker.py"
+ info "FastAPI app with survey system generated."
 }
 
 generate_dockerfile(){
+ info "Generating Dockerfile..."
  cat > "${ROOT_DIR}/Dockerfile" <<'DOCK'
 FROM python:3.11-slim-bullseye
 WORKDIR /app
@@ -844,6 +851,7 @@ DOCK
 }
 
 generate_github_actions(){
+ info "Writing GitHub Actions workflow..."
  mkdir_p "$WORKFLOW_DIR"
  cat > "${WORKFLOW_DIR}/ci-cd.yaml" <<'YAML'
 name: CI/CD Build & Deploy
@@ -891,6 +899,8 @@ YAML
 }
 
 generate_k8s_manifests(){
+ info "Generating ALL Kubernetes manifests..."
+
  cat > "${BASE_DIR}/fastapi-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -1398,44 +1408,54 @@ spec:
       storage: 2Gi
 YAML
 
-resources=$(cat <<'YAML'
+ cat > "${BASE_DIR}/vault.yaml" <<YAML
 apiVersion: v1
 kind: Service
 metadata:
   name: vault
-  namespace: davtrowebdbvault
+  namespace: ${NAMESPACE}
   labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app: ${PROJECT}
     component: vault
+    app.kubernetes.io/name: ${PROJECT}
+    app.kubernetes.io/instance: ${PROJECT}
+    app.kubernetes.io/component: vault
 spec:
   clusterIP: None
   ports:
-  - port: 8200
-    name: http
+  - name: http
+    port: 8200
+    targetPort: 8200
   selector:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app: ${PROJECT}
     component: vault
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: vault
-  namespace: davtrowebdbvault
+  namespace: ${NAMESPACE}
   labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app: ${PROJECT}
     component: vault
+    app.kubernetes.io/name: ${PROJECT}
+    app.kubernetes.io/instance: ${PROJECT}
+    app.kubernetes.io/component: vault
 spec:
   serviceName: vault
   replicas: 1
   selector:
     matchLabels:
-      app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+      app: ${PROJECT}
       component: vault
   template:
     metadata:
       labels:
-        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        app: ${PROJECT}
         component: vault
+        app.kubernetes.io/name: ${PROJECT}
+        app.kubernetes.io/instance: ${PROJECT}
+        app.kubernetes.io/component: vault
     spec:
       serviceAccountName: vault-sa
       containers:
@@ -1476,17 +1496,23 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: vault-sa
-  namespace: davtrowebdbvault
+  namespace: ${NAMESPACE}
   labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
----
+    app: ${PROJECT}
+    app.kubernetes.io/name: ${PROJECT}
+    app.kubernetes.io/instance: ${PROJECT}
+YAML
+
+ cat > "${BASE_DIR}/vault-secrets.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: vault-init
-  namespace: davtrowebdbvault
+  namespace: ${NAMESPACE}
   labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app: ${PROJECT}
+    app.kubernetes.io/name: ${PROJECT}
+    app.kubernetes.io/instance: ${PROJECT}
 data:
   init-vault.sh: |
     #!/bin/bash
@@ -1517,21 +1543,29 @@ data:
       pgadmin-password="adminpassword"
     
     echo "Vault initialization completed"
----
+YAML
+
+ cat > "${BASE_DIR}/vault-job.yaml" <<YAML
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: vault-init
-  namespace: davtrowebdbvault
+  namespace: ${NAMESPACE}
   labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app: ${PROJECT}
     component: vault-init
+    app.kubernetes.io/name: ${PROJECT}
+    app.kubernetes.io/instance: ${PROJECT}
+    app.kubernetes.io/component: vault-init
 spec:
   template:
     metadata:
       labels:
-        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        app: ${PROJECT}
         component: vault-init
+        app.kubernetes.io/name: ${PROJECT}
+        app.kubernetes.io/instance: ${PROJECT}
+        app.kubernetes.io/component: vault-init
     spec:
       serviceAccountName: vault-sa
       containers:
@@ -1554,9 +1588,6 @@ spec:
       restartPolicy: OnFailure
   backoffLimit: 3
 YAML
-)
-
-echo "$resources" > "${BASE_DIR}/vault.yaml"
 
  cat > "${BASE_DIR}/redis.yaml" <<YAML
 apiVersion: apps/v1
@@ -1743,19 +1774,6 @@ spec:
           storage: 10Gi
 YAML
 
- cat > "${BASE_DIR}/kafka-job-sa.yaml" <<YAML
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: kafka-job-sa
-  namespace: ${NAMESPACE}
-  labels:
-    app: ${PROJECT}
-    component: kafka-topic-job
-    app.kubernetes.io/name: ${PROJECT}
-    app.kubernetes.io/instance: ${PROJECT}
-YAML
-
  cat > "${BASE_DIR}/kafka-topic-job.yaml" <<YAML
 apiVersion: batch/v1
 kind: Job
@@ -1824,6 +1842,19 @@ spec:
               
               echo "✓ Kafka topics created successfully"
       restartPolicy: OnFailure
+YAML
+
+ cat > "${BASE_DIR}/kafka-job-sa.yaml" <<YAML
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-job-sa
+  namespace: ${NAMESPACE}
+  labels:
+    app: ${PROJECT}
+    component: kafka-topic-job
+    app.kubernetes.io/name: ${PROJECT}
+    app.kubernetes.io/instance: ${PROJECT}
 YAML
 
  cat > "${BASE_DIR}/kafka-ui.yaml" <<YAML
@@ -3511,6 +3542,8 @@ resources:
   - tempo.yaml
   - pgadmin.yaml
   - kafka-ui.yaml
+  - vault-secrets.yaml
+  - vault-job.yaml
   - network-policies.yaml
   - ingress.yaml
   - kyverno-policy.yaml
@@ -3543,9 +3576,12 @@ spec:
       prune: true
       selfHeal: true
 YAML
+
+ info "All Kubernetes manifests written to ${BASE_DIR}."
 }
 
 generate_readme(){
+ info "Generating README.md..."
  cat > "${ROOT_DIR}/README.md" <<README
 # ${PROJECT} - Complete Monitoring Stack
 
@@ -3558,8 +3594,8 @@ generate_readme(){
 # Deploy to Kubernetes
 kubectl apply -k manifests/base
 
-# Watch pods
-kubectl -n ${NAMESPACE} get pods -w
+# Check all pods
+kubectl get pods -n ${NAMESPACE}
 
 # Access applications:
 # Main App: http://app.${PROJECT}.local
@@ -3609,6 +3645,7 @@ README
 }
 
 generate_all(){
+ info "Starting complete generation..."
  generate_structure
  generate_fastapi_app
  generate_dockerfile
@@ -3616,7 +3653,7 @@ generate_all(){
  generate_k8s_manifests
  generate_readme
  echo
- echo "✅ Generation complete!"
+ info "✅ Generation complete!"
  echo "📁 Structure:"
  echo "   📁 app/ - FastAPI application with Vault integration"
  echo "   📁 manifests/base/ - ALL Kubernetes manifests"
@@ -3626,7 +3663,7 @@ generate_all(){
  echo
  echo "🚀 Next steps:"
  echo "1. Deploy: kubectl apply -k manifests/base"
- echo "2. Watch: kubectl -n ${NAMESPACE} get pods -w"
+ echo "2. Check: kubectl get pods -n ${NAMESPACE}"
  echo "3. Access: http://app.${PROJECT}.local"
  echo "4. Monitor: http://grafana.${PROJECT}.local (admin/admin)"
  echo "5. Manage DB: http://pgadmin.${PROJECT}.local (admin@example.com/adminpassword)"
