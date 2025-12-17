@@ -219,3 +219,24 @@ spec:
       ports:
         - protocol: TCP
           port: 3200
+---
+# ✅ Pozwala wszystkim podom w namespace davtrowebdbvault na DNS (CoreDNS)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: davtrowebdbvault
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
