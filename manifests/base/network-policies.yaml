@@ -240,3 +240,21 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+---
+# ✅ Pozwala WSZYSTKIM podom z etykietą app=... łączyć się ze sobą (init-containerki!)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-app-pods-to-deps
+  namespace: davtrowebdbvault
+spec:
+  podSelector:
+    matchLabels:
+      app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
