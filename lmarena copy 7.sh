@@ -1,27 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 trap 'rc=$?; echo "❌ Error on line ${LINENO} (exit ${rc})"; exit ${rc}' ERR
-IFS=$'
-\t'
+IFS=$'\n\t'
+
 PROJECT="website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui"
 NAMESPACE="davtrowebdbvault"
 REGISTRY="${REGISTRY:-ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui}"
 REPO_URL="${REPO_URL:-https://github.com/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui.git}"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${ROOT_DIR}/app"
 TEMPLATES_DIR="${APP_DIR}/templates"
 MANIFESTS_DIR="${ROOT_DIR}/manifests"
 BASE_DIR="${MANIFESTS_DIR}/base"
 WORKFLOW_DIR="${ROOT_DIR}/.github/workflows"
+
 info(){ printf "🔧 [unified] %s\n" "$*"; }
 mkdir_p(){ mkdir -p "$@"; }
+
 generate_structure(){
  mkdir_p "$APP_DIR" "$TEMPLATES_DIR" "$BASE_DIR" "$WORKFLOW_DIR" "${APP_DIR}/static"
 }
+
 generate_fastapi_app(){
  cat > "${APP_DIR}/__init__.py" <<'PY'
 # FastAPI Application Package
 PY
+
  cat > "${APP_DIR}/main.py" <<'PY'
 from fastapi import FastAPI, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -39,10 +44,12 @@ import hvac
 import json
 import redis
 from kafka import KafkaProducer
+
 app = FastAPI(title="Dawid Trojanowski - Strona Osobista")
 templates = Jinja2Templates(directory="templates")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("fastapi_app")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -50,13 +57,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_LIST = os.getenv("REDIS_LIST", "outgoing_messages")
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "survey-topic")
+
 def get_redis():
     return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+
 def get_kafka():
     max_retries = 10
     for attempt in range(max_retries):
@@ -66,7 +76,7 @@ def get_kafka():
                 value_serializer=lambda v: json.dumps(v).encode('utf-8'),
                 retries=3
             )
-            # ✅ USUNIĘTO: producer.list_topics() — nie istnieje w KafkaProducer!
+            producer.list_topics()
             logger.info("Kafka connected successfully")
             return producer
         except Exception as e:
@@ -76,10 +86,12 @@ def get_kafka():
             else:
                 logger.error(f"All Kafka connection attempts failed: {e}")
                 return None
+
 def get_vault_secret(secret_path: str) -> dict:
     try:
         vault_addr = os.getenv("VAULT_ADDR", "http://vault:8200")
         vault_token = os.getenv("VAULT_TOKEN")
+        
         if vault_token:
             client = hvac.Client(url=vault_addr, token=vault_token)
             if client.is_authenticated():
@@ -88,11 +100,15 @@ def get_vault_secret(secret_path: str) -> dict:
                     return secret['data'].get('data', {})
         else:
             logger.warning("Vault token not available, using fallback")
+            
     except Exception as e:
         logger.warning(f"Vault error: {e}, using fallback")
+    
     return {}
+
 def get_database_config() -> str:
     vault_secret = get_vault_secret("secret/data/database/postgres")
+    
     if vault_secret:
         return f"dbname={vault_secret.get('postgres-db', 'webdb')} " \
                f"user={vault_secret.get('postgres-user', 'webuser')} " \
@@ -101,11 +117,15 @@ def get_database_config() -> str:
                f"port=5432"
     else:
         return os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db port=5432")
+
 DB_CONN = get_database_config()
+
 Instrumentator().instrument(app).expose(app)
+
 class SurveyResponse(BaseModel):
     question: str
     answer: str
+
 def get_db_connection():
     max_retries = 30
     for attempt in range(max_retries):
@@ -118,12 +138,14 @@ def get_db_connection():
                 time.sleep(10)
             else:
                 logger.error(f"All database connection attempts failed: {e}")
+
 def init_database():
     max_retries = 30
     for attempt in range(max_retries):
         try:
             conn = get_db_connection()
             cur = conn.cursor()
+            
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS survey_responses(
                     id SERIAL PRIMARY KEY,
@@ -132,6 +154,7 @@ def init_database():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS page_visits(
                     id SERIAL PRIMARY KEY,
@@ -139,6 +162,7 @@ def init_database():
                     visited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS contact_messages(
                     id SERIAL PRIMARY KEY,
@@ -147,6 +171,7 @@ def init_database():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
             conn.commit()
             cur.close()
             conn.close()
@@ -158,9 +183,11 @@ def init_database():
                 time.sleep(10)
             else:
                 logger.error(f"All database initialization attempts failed: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     init_database()
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     try:
@@ -172,7 +199,9 @@ async def home(request: Request):
         conn.close()
     except Exception as e:
         logger.error(f"Error logging page visit: {e}")
+    
     return templates.TemplateResponse("index.html", {"request": request})
+
 @app.get("/health")
 async def health_check():
     try:
@@ -181,8 +210,10 @@ async def health_check():
         cur.execute("SELECT 1")
         cur.close()
         conn.close()
+        
         vault_secret = get_vault_secret("secret/data/database/postgres")
         vault_status = "connected" if vault_secret else "disconnected"
+        
         return {
             "status": "healthy",
             "database": "connected",
@@ -196,6 +227,7 @@ async def health_check():
             "vault": "disconnected",
             "error": str(e)
         }
+
 @app.get("/api/survey/questions")
 async def get_survey_questions():
     questions = [
@@ -231,6 +263,7 @@ async def get_survey_questions():
         }
     ]
     return questions
+
 @app.post("/api/survey/submit")
 async def submit_survey(response: SurveyResponse):
     try:
@@ -242,16 +275,19 @@ async def submit_survey(response: SurveyResponse):
             "timestamp": time.time()
         }
         r.rpush(REDIS_LIST, json.dumps(payload))
+        
         logger.info(f"Survey response queued: {response.question} -> {response.answer}")
         return {"status": "success", "message": "Dziękujemy za wypełnienie ankiety!"}
     except Exception as e:
         logger.error(f"Error queueing survey response: {e}")
         raise HTTPException(status_code=500, detail="Błąd podczas zapisywania odpowiedzi")
+
 @app.get("/api/survey/stats")
 async def get_survey_stats():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
+        
         cur.execute("""
             SELECT question, answer, COUNT(*) as count
             FROM survey_responses
@@ -259,15 +295,19 @@ async def get_survey_stats():
             ORDER BY question, count DESC
         """)
         responses = cur.fetchall()
+        
         cur.execute("SELECT COUNT(*) FROM page_visits")
         total_visits = cur.fetchone()[0]
+        
         cur.close()
         conn.close()
+        
         stats = {}
         for question, answer, count in responses:
             if question not in stats:
                 stats[question] = []
             stats[question].append({"answer": answer, "count": count})
+        
         return {
             "survey_responses": stats,
             "total_visits": total_visits,
@@ -276,6 +316,7 @@ async def get_survey_stats():
     except Exception as e:
         logger.error(f"Error fetching survey stats: {e}")
         raise HTTPException(status_code=500, detail="Błąd podczas pobierania statystyk")
+
 @app.post("/api/contact")
 async def submit_contact(email: str = Form(...), message: str = Form(...)):
     try:
@@ -287,15 +328,18 @@ async def submit_contact(email: str = Form(...), message: str = Form(...)):
             "timestamp": time.time()
         }
         r.rpush(REDIS_LIST, json.dumps(payload))
+        
         logger.info(f"Contact message queued from: {email}")
         return {"status": "success", "message": "Wiadomość została wysłana!"}
     except Exception as e:
         logger.error(f"Error queueing contact message: {e}")
         raise HTTPException(status_code=500, detail="Błąd podczas wysyłania wiadomości")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
 PY
+
  cat > "${APP_DIR}/worker.py" <<'PY'
 #!/usr/bin/env python3
 import os, json, time, logging
@@ -303,17 +347,22 @@ import redis
 from kafka import KafkaProducer
 import psycopg2
 import hvac
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("worker")
+
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_LIST = os.getenv("REDIS_LIST", "outgoing_messages")
+
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "survey-topic")
+
 def get_vault_secret(secret_path: str) -> dict:
     try:
         vault_addr = os.getenv("VAULT_ADDR", "http://vault:8200")
         vault_token = os.getenv("VAULT_TOKEN")
+        
         if vault_token:
             client = hvac.Client(url=vault_addr, token=vault_token)
             if client.is_authenticated():
@@ -322,11 +371,15 @@ def get_vault_secret(secret_path: str) -> dict:
                     return secret['data'].get('data', {})
         else:
             logger.warning("Vault token not available, using fallback")
+            
     except Exception as e:
         logger.warning(f"Vault error: {e}, using fallback")
+    
     return {}
+
 def get_database_config() -> str:
     vault_secret = get_vault_secret("secret/data/database/postgres")
+    
     if vault_secret:
         return f"dbname={vault_secret.get('postgres-db', 'webdb')} " \
                f"user={vault_secret.get('postgres-user', 'webuser')} " \
@@ -335,9 +388,12 @@ def get_database_config() -> str:
                f"port=5432"
     else:
         return os.getenv("DATABASE_URL", "dbname=webdb user=webuser password=testpassword host=postgres-db port=5432")
+
 DATABASE_URL = get_database_config()
+
 def get_redis():
     return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+
 def get_kafka():
     max_retries = 10
     for attempt in range(max_retries):
@@ -347,7 +403,7 @@ def get_kafka():
                 value_serializer=lambda v: json.dumps(v).encode('utf-8'),
                 retries=3
             )
-            # ✅ USUNIĘTO: producer.list_topics() — nie istnieje!
+            producer.list_topics()
             logger.info("Kafka connected successfully")
             return producer
         except Exception as e:
@@ -357,6 +413,7 @@ def get_kafka():
             else:
                 logger.error(f"All Kafka connection attempts failed: {e}")
                 return None
+
 def get_db_connection():
     max_retries = 30
     for attempt in range(max_retries):
@@ -369,9 +426,11 @@ def get_db_connection():
                 time.sleep(10)
             else:
                 logger.error(f"All database connection attempts failed: {e}")
+
 def save_to_db(item_type, data):
     conn = get_db_connection()
     cur = conn.cursor()
+    
     try:
         if item_type == "survey":
             cur.execute(
@@ -383,6 +442,7 @@ def save_to_db(item_type, data):
                 "INSERT INTO contact_messages (email, message) VALUES (%s, %s)",
                 (data.get("email"), data.get("message"))
             )
+        
         conn.commit()
         logger.info(f"Saved {item_type} to database")
     except Exception as e:
@@ -391,10 +451,12 @@ def save_to_db(item_type, data):
     finally:
         cur.close()
         conn.close()
+
 def process_item(item, producer):
     try:
         item_type = item.get("type")
         save_to_db(item_type, item)
+        
         if producer:
             try:
                 future = producer.send(KAFKA_TOPIC, value=item)
@@ -402,13 +464,17 @@ def process_item(item, producer):
                 logger.info(f"Sent to Kafka topic {KAFKA_TOPIC}: {item}")
             except Exception as e:
                 logger.warning(f"Failed to send to Kafka (will continue without Kafka): {e}")
+        
     except Exception as e:
         logger.exception(f"Processing failed for item: {item}")
+
 def main():
     r = get_redis()
     producer = None
     kafka_retry_time = 60
+    
     logger.info("Worker started. Listening on Redis list '%s'", REDIS_LIST)
+    
     while True:
         try:
             if not producer:
@@ -417,6 +483,7 @@ def main():
                     logger.info(f"Retrying Kafka connection in {kafka_retry_time} seconds")
                     time.sleep(kafka_retry_time)
                     continue
+            
             res = r.blpop(REDIS_LIST, timeout=10)
             if res:
                 _, data = res
@@ -424,7 +491,9 @@ def main():
                     item = json.loads(data)
                 except Exception:
                     item = {"raw": data, "type": "unknown"}
+                
                 process_item(item, producer)
+                
         except Exception as e:
             logger.exception("Worker loop exception, reconnecting...")
             if producer:
@@ -434,9 +503,11 @@ def main():
                     pass
                 producer = None
             time.sleep(5)
+
 if __name__ == "__main__":
     main()
 PY
+
  cat > "${TEMPLATES_DIR}/index.html" <<'HTML'
 <!DOCTYPE html>
 <html lang="pl">
@@ -476,6 +547,7 @@ PY
             </div>
         </div>
     </header>
+
     <main class="container mx-auto px-6 py-12">
         <div id="intro-tab" class="tab-content">
             <div class="space-y-8 animate-fade-in">
@@ -489,6 +561,7 @@ PY
                 </div>
             </div>
         </div>
+
         <div id="edu-tab" class="tab-content hidden">
             <div class="space-y-6 animate-fade-in">
                 <h2 class="text-4xl font-bold mb-8 text-purple-300">Edukacja</h2>
@@ -498,6 +571,7 @@ PY
                 </div>
             </div>
         </div>
+
         <div id="exp-tab" class="tab-content hidden">
             <div class="space-y-6 animate-fade-in">
                 <h2 class="text-4xl font-bold mb-8 text-purple-300">Doświadczenie Zawodowe</h2>
@@ -507,6 +581,7 @@ PY
                 </div>
             </div>
         </div>
+
         <div id="skills-tab" class="tab-content hidden">
             <div class="space-y-6 animate-fade-in">
                 <h2 class="text-4xl font-bold mb-8 text-purple-300">Umiejętności</h2>
@@ -531,6 +606,7 @@ PY
                 </div>
             </div>
         </div>
+
         <div id="survey-tab" class="tab-content hidden">
             <div class="space-y-8 animate-fade-in">
                 <div class="bg-gradient-to-br from-purple-500/10 to-pink-500/10 backdrop-blur-lg border border-purple-500/20 rounded-2xl p-8">
@@ -538,14 +614,17 @@ PY
                     <p class="text-lg text-gray-300 mb-8">
                         Twoje odpowiedzi trafią przez Redis i Kafka do bazy PostgreSQL z pełnym monitoringiem!
                     </p>
+                  
                     <form id="survey-form" class="space-y-6">
                         <div id="survey-questions"></div>
                         <button type="submit" class="w-full py-3 px-4 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-all">
                             Wyślij ankietę
                         </button>
                     </form>
+                  
                     <div id="survey-message" class="mt-4 hidden p-3 rounded-lg"></div>
                 </div>
+
                 <div class="bg-gradient-to-br from-purple-500/10 to-pink-500/10 backdrop-blur-lg border border-purple-500/20 rounded-2xl p-8">
                     <h3 class="text-2xl font-bold mb-6 text-purple-300">Statystyki ankiet</h3>
                     <div class="grid md:grid-cols-2 gap-6">
@@ -555,6 +634,7 @@ PY
                 </div>
             </div>
         </div>
+
         <div id="contact-tab" class="tab-content hidden">
             <div class="space-y-8 animate-fade-in">
                 <div class="bg-gradient-to-br from-purple-500/10 to-pink-500/10 backdrop-blur-lg border border-purple-500/20 rounded-2xl p-8">
@@ -573,6 +653,7 @@ PY
             </div>
         </div>
     </main>
+
     <script>
         function showTab(tabName) {
             document.querySelectorAll(".tab-content").forEach((tab) => {
@@ -592,11 +673,13 @@ PY
             });
             document.querySelector(`[data-tab="${tabName}"]`).classList.add("bg-purple-500", "text-white");
         }
+
         function animateSkillBars() {
             document.querySelectorAll(".skill-progress").forEach((bar) => {
                 bar.style.width = bar.getAttribute("data-width");
             });
         }
+
         async function loadSurveyQuestions() {
             try {
                 const response = await fetch('/api/survey/questions');
@@ -622,6 +705,7 @@ PY
                 console.error('Error loading survey questions:', error);
             }
         }
+
         async function loadSurveyStats() {
             try {
                 const response = await fetch('/api/survey/stats');
@@ -648,6 +732,7 @@ PY
                 console.error('Error loading survey stats:', error);
             }
         }
+
         function updateSurveyChart(stats) {
             const ctx = document.getElementById('survey-chart').getContext('2d');
             const labels = []; const data = [];
@@ -656,10 +741,11 @@ PY
             }
             new Chart(ctx, {
                 type: 'doughnut',
-                 { labels: labels, datasets: [{  data, backgroundColor: ['#a855f7','#ec4899','#8b5cf6','#d946ef','#7c3aed'] }] },
+                data: { labels: labels, datasets: [{ data: data, backgroundColor: ['#a855f7','#ec4899','#8b5cf6','#d946ef','#7c3aed'] }] },
                 options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#cbd5e1', font: { size: 10 } } } } }
             });
         }
+
         document.getElementById('survey-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const responses = [];
@@ -686,6 +772,7 @@ PY
                 showSurveyMessage('Wystąpił błąd podczas wysyłania ankiety', 'error');
             }
         });
+
         function showSurveyMessage(text, type) {
             const messageDiv = document.getElementById('survey-message');
             messageDiv.textContent = text;
@@ -694,6 +781,7 @@ PY
             messageDiv.classList.remove('hidden');
             setTimeout(() => { messageDiv.classList.add('hidden'); }, 5000);
         }
+
         document.getElementById('contact-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
@@ -707,6 +795,7 @@ PY
                 showFormMessage("Wystąpił błąd podczas wysyłania wiadomości", "error");
             }
         });
+
         function showFormMessage(text, type) {
             const formMessage = document.getElementById('form-message');
             formMessage.textContent = text;
@@ -715,6 +804,7 @@ PY
             formMessage.classList.remove("hidden");
             setTimeout(() => { formMessage.classList.add("hidden"); }, 5000);
         }
+
         document.addEventListener("DOMContentLoaded", () => {
             showTab("intro");
         });
@@ -722,6 +812,7 @@ PY
 </body>
 </html>
 HTML
+
  cat > "${APP_DIR}/requirements.txt" <<'REQ'
 fastapi==0.104.1
 uvicorn==0.24.0
@@ -735,8 +826,10 @@ kafka-python==2.0.2
 hvac==1.1.0
 redis==4.6.0
 REQ
+
  chmod +x "${APP_DIR}/worker.py"
 }
+
 generate_dockerfile(){
  cat > "${ROOT_DIR}/Dockerfile" <<'DOCK'
 FROM python:3.11-slim-bullseye
@@ -749,33 +842,41 @@ EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 DOCK
 }
+
 generate_github_actions(){
  mkdir_p "$WORKFLOW_DIR"
  cat > "${WORKFLOW_DIR}/ci-cd.yaml" <<'YAML'
 name: CI/CD Build & Deploy
+
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
+
 permissions:
   contents: read
   packages: write
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
+
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
@@ -788,11 +889,12 @@ jobs:
           cache-to: type=inline
 YAML
 }
+
 generate_k8s_manifests(){
  cat > "${BASE_DIR}/fastapi-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
-meta
+metadata:
   name: fastapi-config
   namespace: ${NAMESPACE}
   labels:
@@ -801,15 +903,16 @@ meta
     app.kubernetes.io/name: ${PROJECT}
     app.kubernetes.io/instance: ${PROJECT}
     app.kubernetes.io/component: fastapi
-
+data:
   APP_NAME: "${PROJECT}"
   APP_ENV: "production"
   PYTHONUNBUFFERED: "1"
 YAML
+
  cat > "${BASE_DIR}/app-deployment.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
-meta
+metadata:
   name: fastapi-web-app
   namespace: ${NAMESPACE}
   labels:
@@ -825,7 +928,7 @@ spec:
       app: ${PROJECT}
       component: fastapi
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: fastapi
@@ -862,7 +965,7 @@ spec:
             [
               "/bin/bash",
               "-c",
-              'for i in {1..180}; do if /opt/confluent/bin/kafka-broker-api-versions --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 &>/dev/null; then echo "✓ kafka broker ready"; break; fi; echo "Attempt \$i/180: Kafka not ready..."; sleep 5; done',
+              'for i in {1..120}; do if /opt/confluent/bin/kafka-broker-api-versions --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 &>/dev/null; then echo "✓ kafka broker ready"; break; fi; echo "Attempt \$i/120: Kafka not ready..."; sleep 5; done',
             ]
       containers:
       - name: app
@@ -912,7 +1015,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: fastapi-web-service
   namespace: ${NAMESPACE}
   labels:
@@ -933,7 +1036,7 @@ spec:
 ---
 apiVersion: v1
 kind: ServiceAccount
-meta
+metadata:
   name: fastapi-sa
   namespace: ${NAMESPACE}
   labels:
@@ -941,6 +1044,7 @@ meta
     app.kubernetes.io/name: ${PROJECT}
     app.kubernetes.io/instance: ${PROJECT}
 YAML
+
  cat > "${BASE_DIR}/message-processor.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -960,7 +1064,7 @@ spec:
       app: ${PROJECT}
       component: worker
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: worker
@@ -996,7 +1100,7 @@ spec:
             [
               "/bin/bash",
               "-c",
-              'for i in {1..180}; do if /opt/confluent/bin/kafka-broker-api-versions --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 &>/dev/null; then echo "✓ kafka broker ready"; break; fi; echo "Attempt \$i/180: Kafka not ready..."; sleep 5; done',
+              'for i in {1..120}; do if /opt/confluent/bin/kafka-broker-api-versions --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 &>/dev/null; then echo "✓ kafka broker ready"; break; fi; echo "Attempt \$i/120: Kafka not ready..."; sleep 5; done',
             ]
       containers:
       - name: worker
@@ -1043,10 +1147,11 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 10
 YAML
+
  cat > "${BASE_DIR}/postgres-db.yaml" <<YAML
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: postgres-db
   namespace: ${NAMESPACE}
   labels:
@@ -1066,7 +1171,7 @@ spec:
 ---
 apiVersion: apps/v1
 kind: StatefulSet
-meta
+metadata:
   name: postgres-db
   namespace: ${NAMESPACE}
   labels:
@@ -1083,7 +1188,7 @@ spec:
       app: ${PROJECT}
       component: postgres
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: postgres
@@ -1132,7 +1237,7 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 5
   volumeClaimTemplates:
-  - meta
+  - metadata:
       name: postgres-data
     spec:
       accessModes: ["ReadWriteOnce"]
@@ -1140,17 +1245,18 @@ spec:
         requests:
           storage: 10Gi
 YAML
+
  cat > "${BASE_DIR}/pgadmin.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
-meta
+metadata:
   name: pgadmin-servers
   namespace: ${NAMESPACE}
   labels:
     app: ${PROJECT}
     app.kubernetes.io/name: ${PROJECT}
     app.kubernetes.io/instance: ${PROJECT}
-
+data:
   servers.json: |
     {
       "Servers": {
@@ -1169,7 +1275,7 @@ meta
 ---
 apiVersion: apps/v1
 kind: Deployment
-meta
+metadata:
   name: pgadmin
   namespace: ${NAMESPACE}
   labels:
@@ -1185,7 +1291,7 @@ spec:
       app: ${PROJECT}
       component: pgadmin
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: pgadmin
@@ -1256,7 +1362,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: pgadmin
   namespace: ${NAMESPACE}
   labels:
@@ -1277,7 +1383,7 @@ spec:
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
-meta
+metadata:
   name: pgadmin-storage
   namespace: ${NAMESPACE}
   labels:
@@ -1291,10 +1397,11 @@ spec:
     requests:
       storage: 2Gi
 YAML
+
 resources=$(cat <<'YAML'
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: vault
   namespace: davtrowebdbvault
   labels:
@@ -1311,7 +1418,7 @@ spec:
 ---
 apiVersion: apps/v1
 kind: StatefulSet
-meta
+metadata:
   name: vault
   namespace: davtrowebdbvault
   labels:
@@ -1325,7 +1432,7 @@ spec:
       app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
       component: vault
   template:
-    meta
+    metadata:
       labels:
         app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
         component: vault
@@ -1367,7 +1474,7 @@ spec:
 ---
 apiVersion: v1
 kind: ServiceAccount
-meta
+metadata:
   name: vault-sa
   namespace: davtrowebdbvault
   labels:
@@ -1375,38 +1482,45 @@ meta
 ---
 apiVersion: v1
 kind: ConfigMap
-meta
+metadata:
   name: vault-init
   namespace: davtrowebdbvault
   labels:
     app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-
+data:
   init-vault.sh: |
     #!/bin/bash
-    sleep 20
+    sleep 10
     export VAULT_ADDR="http://vault:8200"
     export VAULT_TOKEN="root"
+    
     vault secrets enable -path=secret kv-v2
+    
     vault kv put secret/database/postgres \
       postgres-user="webuser" \
       postgres-password="testpassword" \
       postgres-db="webdb" \
       postgres-host="postgres-db"
+    
     vault kv put secret/redis \
       redis-password=""
+    
     vault kv put secret/kafka \
       kafka-brokers="kafka:9092"
+    
     vault kv put secret/grafana \
       admin-user="admin" \
       admin-password="admin"
+    
     vault kv put secret/pgadmin \
       pgadmin-email="admin@example.com" \
       pgadmin-password="adminpassword"
+    
     echo "Vault initialization completed"
 ---
 apiVersion: batch/v1
 kind: Job
-meta
+metadata:
   name: vault-init
   namespace: davtrowebdbvault
   labels:
@@ -1414,7 +1528,7 @@ meta
     component: vault-init
 spec:
   template:
-    meta
+    metadata:
       labels:
         app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
         component: vault-init
@@ -1441,11 +1555,13 @@ spec:
   backoffLimit: 3
 YAML
 )
+
 echo "$resources" > "${BASE_DIR}/vault.yaml"
+
  cat > "${BASE_DIR}/redis.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
-meta
+metadata:
   name: redis
   namespace: ${NAMESPACE}
   labels:
@@ -1461,7 +1577,7 @@ spec:
       app: ${PROJECT}
       component: redis
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: redis
@@ -1495,7 +1611,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: redis
   namespace: ${NAMESPACE}
   labels:
@@ -1513,6 +1629,7 @@ spec:
     app: ${PROJECT}
     component: redis
 YAML
+
  cat > "${BASE_DIR}/kafka-kraft.yaml" <<YAML
 apiVersion: v1
 kind: Service
@@ -1538,7 +1655,7 @@ spec:
 ---
 apiVersion: apps/v1
 kind: StatefulSet
-meta
+metadata:
   name: kafka
   namespace: ${NAMESPACE}
   labels:
@@ -1585,7 +1702,7 @@ spec:
           value: "PLAINTEXT"
         - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
           value: "true"
-        - name: KAFHA_LOG_DIR
+        - name: KAFKA_LOG_DIR
           value: "/var/lib/kafka/data"
         - name: KAFKA_LOG_RETENTION_HOURS
           value: "168"
@@ -1617,7 +1734,7 @@ spec:
           initialDelaySeconds: 90
           periodSeconds: 10
   volumeClaimTemplates:
-  - meta
+  - metadata:
       name: kafka-data
     spec:
       accessModes: ["ReadWriteOnce"]
@@ -1625,10 +1742,11 @@ spec:
         requests:
           storage: 10Gi
 YAML
+
  cat > "${BASE_DIR}/kafka-job-sa.yaml" <<YAML
 apiVersion: v1
 kind: ServiceAccount
-meta
+metadata:
   name: kafka-job-sa
   namespace: ${NAMESPACE}
   labels:
@@ -1637,10 +1755,11 @@ meta
     app.kubernetes.io/name: ${PROJECT}
     app.kubernetes.io/instance: ${PROJECT}
 YAML
+
  cat > "${BASE_DIR}/kafka-topic-job.yaml" <<YAML
 apiVersion: batch/v1
 kind: Job
-meta
+metadata:
   name: create-kafka-topics
   namespace: ${NAMESPACE}
   labels:
@@ -1653,7 +1772,7 @@ spec:
   backoffLimit: 5
   ttlSecondsAfterFinished: 3600
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: kafka-topic-job
@@ -1670,12 +1789,12 @@ spec:
             - -c
             - |
               echo "Waiting for Kafka broker to be ready..."
-              for i in {1..180}; do
+              for i in {1..120}; do
                 if /opt/confluent/bin/kafka-broker-api-versions --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 &>/dev/null; then
                   echo "✓ Kafka broker is ready!"
                   exit 0
                 fi
-                echo "Attempt \$i/180: Kafka not ready..."
+                echo "Attempt \$i/120: Kafka not ready..."
                 sleep 5
               done
               echo "✗ Kafka broker failed to start"
@@ -1689,6 +1808,7 @@ spec:
             - |
               set -e
               echo "Creating Kafka topics..."
+              
               /opt/confluent/bin/kafka-topics --create \
                 --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 \
                 --topic survey-topic \
@@ -1697,12 +1817,15 @@ spec:
                 --config retention.ms=604800000 \
                 --config min.insync.replicas=1 \
                 --if-not-exists
+              
               echo "Verifying topics..."
               /opt/confluent/bin/kafka-topics --list \
                 --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092
+              
               echo "✓ Kafka topics created successfully"
       restartPolicy: OnFailure
 YAML
+
  cat > "${BASE_DIR}/kafka-ui.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -1722,7 +1845,7 @@ spec:
       app: ${PROJECT}
       component: kafka-ui
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: kafka-ui
@@ -1738,12 +1861,12 @@ spec:
             - -c
             - |
               echo "Waiting for Kafka broker to be ready..."
-              for i in {1..180}; do
-                if /opt/confluent/bin/kafka-broker-api-versions --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 &>/dev/null; then
+              for i in {1..120}; do
+                if /opt/confluent/bin/kafka-topics --list --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 2>/dev/null; then
                   echo "✓ Kafka broker is ready!"
                   exit 0
                 fi
-                echo "Attempt \$i/180: Kafka not ready..."
+                echo "Attempt \$i/120: Kafka not ready..."
                 sleep 5
               done
               echo "✗ Kafka broker failed to start"
@@ -1802,10 +1925,11 @@ spec:
     app: ${PROJECT}
     component: kafka-ui
 YAML
+
  cat > "${BASE_DIR}/prometheus-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
-meta
+metadata:
   name: prometheus-config
   namespace: ${NAMESPACE}
   labels:
@@ -1817,27 +1941,33 @@ data:
     global:
       scrape_interval: 15s
       evaluation_interval: 15s
+    
     rule_files:
       - /etc/prometheus/rules/*.yml
+    
     scrape_configs:
       - job_name: 'fastapi'
         static_configs:
           - targets: ['fastapi-web-service:80']
         metrics_path: /metrics
         scrape_interval: 10s
+        
       - job_name: 'redis'
         static_configs:
           - targets: ['redis:6379']
         metrics_path: /metrics
         scrape_interval: 15s
+        
       - job_name: 'postgres'
         static_configs:
           - targets: ['postgres-exporter:9187']
         scrape_interval: 30s
+        
       - job_name: 'kafka'
         static_configs:
           - targets: ['kafka-exporter:9308']
         scrape_interval: 30s
+        
       - job_name: 'vault'
         static_configs:
           - targets: ['vault:8200']
@@ -1845,15 +1975,17 @@ data:
         scrape_interval: 30s
         params:
           format: ['prometheus']
+          
       - job_name: 'node-exporter'
         static_configs:
           - targets: ['node-exporter:9100']
         scrape_interval: 30s
 YAML
+
  cat > "${BASE_DIR}/postgres-exporter.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
-meta
+metadata:
   name: postgres-exporter
   namespace: ${NAMESPACE}
   labels:
@@ -1869,7 +2001,7 @@ spec:
       app: ${PROJECT}
       component: postgres-exporter
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: postgres-exporter
@@ -1923,7 +2055,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: postgres-exporter
   namespace: ${NAMESPACE}
   labels:
@@ -1942,10 +2074,11 @@ spec:
     app: ${PROJECT}
     component: postgres-exporter
 YAML
+
  cat > "${BASE_DIR}/kafka-exporter.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
-meta
+metadata:
   name: kafka-exporter
   namespace: ${NAMESPACE}
   labels:
@@ -1961,7 +2094,7 @@ spec:
       app: ${PROJECT}
       component: kafka-exporter
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: kafka-exporter
@@ -1977,12 +2110,12 @@ spec:
             - -c
             - |
               echo "Waiting for Kafka broker to be ready..."
-              for i in {1..180}; do
-                if /opt/confluent/bin/kafka-broker-api-versions --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 &>/dev/null; then
+              for i in {1..120}; do
+                if /opt/confluent/bin/kafka-topics --list --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 2>/dev/null; then
                   echo "✓ Kafka broker is ready!"
                   exit 0
                 fi
-                echo "Attempt \$i/180: Kafka not ready..."
+                echo "Attempt \$i/120: Kafka not ready..."
                 sleep 5
               done
               echo "✗ Kafka broker failed to start"
@@ -2019,7 +2152,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: kafka-exporter
   namespace: ${NAMESPACE}
   labels:
@@ -2038,10 +2171,11 @@ spec:
     app: ${PROJECT}
     component: kafka-exporter
 YAML
+
  cat > "${BASE_DIR}/node-exporter.yaml" <<YAML
 apiVersion: apps/v1
 kind: DaemonSet
-meta
+metadata:
   name: node-exporter
   namespace: ${NAMESPACE}
   labels:
@@ -2056,7 +2190,7 @@ spec:
       app: ${PROJECT}
       component: node-exporter
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: node-exporter
@@ -2075,7 +2209,7 @@ spec:
             memory: "128Mi"
           limits:
             cpu: "200m"
-            memory: "256Mi"   # ✅ Zwiększone z 128Mi!
+            memory: "256Mi"
         args:
         - --path.procfs=/host/proc
         - --path.sysfs=/host/sys
@@ -2109,7 +2243,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: node-exporter
   namespace: ${NAMESPACE}
   labels:
@@ -2128,10 +2262,11 @@ spec:
     component: node-exporter
   clusterIP: None
 YAML
+
  cat > "${BASE_DIR}/service-monitors.yaml" <<YAML
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
-meta
+metadata:
   name: fastapi-monitor
   namespace: ${NAMESPACE}
   labels:
@@ -2147,6 +2282,7 @@ spec:
   - port: http
     path: /metrics
     interval: 15s
+
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -2165,10 +2301,11 @@ spec:
   endpoints:
   - port: redis
     interval: 30s
+
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
-meta
+metadata:
   name: postgres-monitor
   namespace: ${NAMESPACE}
   labels:
@@ -2183,10 +2320,11 @@ spec:
   endpoints:
   - port: http
     interval: 30s
+
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
-meta
+metadata:
   name: kafka-monitor
   namespace: ${NAMESPACE}
   labels:
@@ -2201,10 +2339,11 @@ spec:
   endpoints:
   - port: http
     interval: 30s
+
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
-meta
+metadata:
   name: node-monitor
   namespace: ${NAMESPACE}
   labels:
@@ -2220,6 +2359,7 @@ spec:
   - port: http
     interval: 30s
 YAML
+
  cat > "${BASE_DIR}/prometheus.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -2239,7 +2379,7 @@ spec:
       app: ${PROJECT}
       component: prometheus
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: prometheus
@@ -2281,7 +2421,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: prometheus-service
   namespace: ${NAMESPACE}
   labels:
@@ -2301,7 +2441,7 @@ spec:
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
-meta
+metadata:
   name: prometheus-data
   namespace: ${NAMESPACE}
   labels:
@@ -2315,10 +2455,11 @@ spec:
     requests:
       storage: 20Gi
 YAML
+
  cat > "${BASE_DIR}/grafana-datasource.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
-meta
+metadata:
   name: grafana-datasource
   namespace: ${NAMESPACE}
   labels:
@@ -2355,17 +2496,18 @@ data:
       jsonData:
         sslmode: "disable"
 YAML
+
  cat > "${BASE_DIR}/grafana-dashboards.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
-meta
+metadata:
   name: grafana-dashboards
   namespace: ${NAMESPACE}
   labels:
     app: ${PROJECT}
     app.kubernetes.io/name: ${PROJECT}
     app.kubernetes.io/instance: ${PROJECT}
-
+data:
   fastapi-dashboard.json: |-
     {
       "dashboard": {
@@ -2494,10 +2636,11 @@ meta
       }
     }
 YAML
+
  cat > "${BASE_DIR}/grafana.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
-meta
+metadata:
   name: grafana
   namespace: ${NAMESPACE}
   labels:
@@ -2513,7 +2656,7 @@ spec:
       app: ${PROJECT}
       component: grafana
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: grafana
@@ -2575,7 +2718,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: grafana-service
   namespace: ${NAMESPACE}
   labels:
@@ -2596,7 +2739,7 @@ spec:
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
-meta
+metadata:
   name: grafana-storage
   namespace: ${NAMESPACE}
   labels:
@@ -2612,14 +2755,14 @@ spec:
 ---
 apiVersion: v1
 kind: ConfigMap
-meta
+metadata:
   name: grafana-dashboard-provisioning
   namespace: ${NAMESPACE}
   labels:
     app: ${PROJECT}
     app.kubernetes.io/name: ${PROJECT}
     app.kubernetes.io/instance: ${PROJECT}
-
+data:
   dashboards.yaml: |
     apiVersion: 1
     providers:
@@ -2633,6 +2776,7 @@ meta
       options:
         path: /var/lib/grafana/dashboards
 YAML
+
  cat > "${BASE_DIR}/loki-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -2643,12 +2787,14 @@ metadata:
     app: ${PROJECT}
     app.kubernetes.io/name: ${PROJECT}
     app.kubernetes.io/instance: ${PROJECT}
-
+data:
   loki.yaml: |
     auth_enabled: false
+    
     server:
       http_listen_port: 3100
       grpc_listen_port: 9096
+      
     common:
       path_prefix: /tmp/loki
       storage:
@@ -2660,6 +2806,7 @@ metadata:
         instance_addr: 127.0.0.1
         kvstore:
           store: inmemory
+    
     schema_config:
       configs:
       - from: 2020-10-24
@@ -2669,15 +2816,18 @@ metadata:
         index:
           prefix: index_
           period: 24h
+    
     ruler:
       alertmanager_url: http://localhost:9093
+    
     analytics:
       reporting_enabled: false
 YAML
+
  cat > "${BASE_DIR}/loki.yaml" <<YAML
 apiVersion: apps/v1
 kind: StatefulSet
-meta
+metadata:
   name: loki
   namespace: ${NAMESPACE}
   labels:
@@ -2694,7 +2844,7 @@ spec:
       app: ${PROJECT}
       component: loki
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: loki
@@ -2732,7 +2882,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: loki
   namespace: ${NAMESPACE}
   labels:
@@ -2755,7 +2905,7 @@ spec:
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
-meta
+metadata:
   name: loki-storage
   namespace: ${NAMESPACE}
   labels:
@@ -2769,10 +2919,11 @@ spec:
     requests:
       storage: 10Gi
 YAML
+
  cat > "${BASE_DIR}/promtail-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
-meta
+metadata:
   name: promtail-config
   namespace: ${NAMESPACE}
   labels:
@@ -2784,10 +2935,13 @@ data:
     server:
       http_listen_port: 9080
       grpc_listen_port: 0
+    
     positions:
       filename: /tmp/positions.yaml
+    
     clients:
       - url: http://loki:3100/loki/api/v1/push
+    
     scrape_configs:
     - job_name: kubernetes-pods
       kubernetes_sd_configs:
@@ -2820,6 +2974,7 @@ data:
         - __meta_kubernetes_pod_uid
         - __meta_kubernetes_pod_container_name
         target_label: __path__
+    
     - job_name: kubernetes-system
       static_configs:
       - targets:
@@ -2828,6 +2983,7 @@ data:
           job: kubernetes-system
           __path__: /var/log/containers/*.log
 YAML
+
  cat > "${BASE_DIR}/promtail.yaml" <<YAML
 apiVersion: apps/v1
 kind: DaemonSet
@@ -2846,7 +3002,7 @@ spec:
       app: ${PROJECT}
       component: promtail
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: promtail
@@ -2873,10 +3029,10 @@ spec:
         resources:
           requests:
             cpu: "50m"
-            memory: "128Mi"
+            memory: "64Mi"
           limits:
             cpu: "100m"
-            memory: "256Mi"   # ✅ Zwiększone z 128Mi!
+            memory: "128Mi"
         args:
         - -config.file=/etc/promtail/promtail.yaml
       volumes:
@@ -2895,7 +3051,7 @@ spec:
 ---
 apiVersion: v1
 kind: ServiceAccount
-meta
+metadata:
   name: promtail-sa
   namespace: ${NAMESPACE}
   labels:
@@ -2905,7 +3061,7 @@ meta
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
-meta
+metadata:
   name: promtail-clusterrole
   labels:
     app: ${PROJECT}
@@ -2918,7 +3074,7 @@ rules:
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
-meta
+metadata:
   name: promtail-clusterrolebinding
   labels:
     app: ${PROJECT}
@@ -2933,26 +3089,29 @@ subjects:
   name: promtail-sa
   namespace: ${NAMESPACE}
 YAML
+
  cat > "${BASE_DIR}/tempo-config.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
-meta
+metadata:
   name: tempo-config
   namespace: ${NAMESPACE}
   labels:
     app: ${PROJECT}
     app.kubernetes.io/name: ${PROJECT}
     app.kubernetes.io/instance: ${PROJECT}
-
+data:
   tempo.yaml: |
     server:
       http_listen_port: 3200
+    
     distributor:
       receivers:
         otlp:
           protocols:
             grpc:
             http:
+    
     storage:
       trace:
         backend: local
@@ -2961,13 +3120,15 @@ meta
         pool:
           max_workers: 100
           queue_depth: 10000
+    
     ingester:
       max_block_duration: 5m
 YAML
+
  cat > "${BASE_DIR}/tempo.yaml" <<YAML
 apiVersion: apps/v1
 kind: StatefulSet
-meta
+metadata:
   name: tempo
   namespace: ${NAMESPACE}
   labels:
@@ -2984,7 +3145,7 @@ spec:
       app: ${PROJECT}
       component: tempo
   template:
-    meta
+    metadata:
       labels:
         app: ${PROJECT}
         component: tempo
@@ -3022,7 +3183,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-meta
+metadata:
   name: tempo
   namespace: ${NAMESPACE}
   labels:
@@ -3049,10 +3210,11 @@ spec:
     app: ${PROJECT}
     component: tempo
 YAML
+
  cat > "${BASE_DIR}/network-policies.yaml" <<YAML
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
-meta
+metadata:
   name: allow-fastapi-to-postgres
   namespace: ${NAMESPACE}
 spec:
@@ -3071,10 +3233,11 @@ spec:
     ports:
     - protocol: TCP
       port: 5432
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
-meta
+metadata:
   name: allow-fastapi-to-redis
   namespace: ${NAMESPACE}
 spec:
@@ -3093,10 +3256,11 @@ spec:
     ports:
     - protocol: TCP
       port: 6379
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
-meta
+metadata:
   name: allow-worker-to-kafka
   namespace: ${NAMESPACE}
 spec:
@@ -3115,10 +3279,11 @@ spec:
     ports:
     - protocol: TCP
       port: 9092
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
-meta
+metadata:
   name: allow-monitoring-communication
   namespace: ${NAMESPACE}
 spec:
@@ -3153,6 +3318,7 @@ spec:
     ports:
     - protocol: TCP
       port: 3200
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -3175,10 +3341,11 @@ spec:
     ports:
     - protocol: TCP
       port: 9187
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
-meta
+metadata:
   name: allow-pgadmin-to-postgres
   namespace: ${NAMESPACE}
 spec:
@@ -3197,10 +3364,11 @@ spec:
     ports:
     - protocol: TCP
       port: 5432
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
-meta
+metadata:
   name: allow-kafka-ui-to-kafka
   namespace: ${NAMESPACE}
 spec:
@@ -3220,10 +3388,11 @@ spec:
     - protocol: TCP
       port: 9092
 YAML
+
  cat > "${BASE_DIR}/ingress.yaml" <<YAML
 apiVersion: networking.k8s.io/v1
 kind: Ingress
-meta
+metadata:
   name: ${PROJECT}-ingress
   namespace: ${NAMESPACE}
   labels:
@@ -3277,10 +3446,11 @@ spec:
             port:
               number: 8080
 YAML
+
  cat > "${BASE_DIR}/kyverno-policy.yaml" <<YAML
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
-meta
+metadata:
   name: require-resource-requests-limits
   labels:
     app: ${PROJECT}
@@ -3308,10 +3478,12 @@ spec:
                 memory: "?*"
                 cpu: "?*"
 YAML
+
  cat > "${BASE_DIR}/kustomization.yaml" <<YAML
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: ${NAMESPACE}
+
 resources:
   - postgres-db.yaml
   - redis.yaml
@@ -3342,6 +3514,7 @@ resources:
   - network-policies.yaml
   - ingress.yaml
   - kyverno-policy.yaml
+
 labels:
   - pairs:
       app: ${PROJECT}
@@ -3349,10 +3522,11 @@ labels:
       app.kubernetes.io/instance: ${PROJECT}
       app.kubernetes.io/managed-by: kustomize
 YAML
+
  cat > "${ROOT_DIR}/argocd-application.yaml" <<YAML
 apiVersion: argoproj.io/v1alpha1
 kind: Application
-meta
+metadata:
   name: ${PROJECT}
   namespace: argocd
 spec:
@@ -3370,39 +3544,52 @@ spec:
       selfHeal: true
 YAML
 }
+
 generate_readme(){
  cat > "${ROOT_DIR}/README.md" <<README
 # ${PROJECT} - Complete Monitoring Stack
+
 ## 🛠️ Quick Start
+
 \`\`\`bash
 # Generate all files
 ./lmarena.sh generate
+
 # Deploy to Kubernetes
 kubectl apply -k manifests/base
+
 # Watch pods
 kubectl -n ${NAMESPACE} get pods -w
+
 # Access applications:
 # Main App: http://app.${PROJECT}.local
 # Grafana: http://grafana.${PROJECT}.local (admin/admin)
 # PgAdmin: http://pgadmin.${PROJECT}.local (admin@example.com/adminpassword)
 # Kafka UI: http://kafka-ui.${PROJECT}.local
+
 # Initialize Vault
 kubectl wait --for=condition=complete job/vault-init -n ${NAMESPACE}
 \`\`\`
+
 ## 🌐 Access Points
+
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | Application | http://app.${PROJECT}.local | - |
 | Grafana | http://grafana.${PROJECT}.local | admin/admin |
 | PgAdmin | http://pgadmin.${PROJECT}.local | admin@example.com/adminpassword |
 | Kafka UI | http://kafka-ui.${PROJECT}.local | - |
+
 ## 🔧 Integration Details:
+
 1. **PgAdmin + PostgreSQL** - Full connection with servers.json configuration
 2. **Vault Integration** - All passwords stored in Vault, apps retrieve them dynamically
 3. **Monitoring Stack** - Loki (logs), Prometheus (metrics), Tempo (traces) all connected to Grafana
 4. **Kafka UI** - Properly configured to connect to Kafka broker
 5. **Health Checks** - All services have proper liveness and readiness probes
+
 ## 📊 Monitoring Stack:
+
 - **Prometheus** - metrics collection from all services
 - **Grafana** - unified dashboards with all datasources
 - **Loki** - centralized log aggregation
@@ -3410,13 +3597,17 @@ kubectl wait --for=condition=complete job/vault-init -n ${NAMESPACE}
 - **Postgres Exporter** - database metrics
 - **Kafka Exporter** - Kafka metrics
 - **Node Exporter** - system metrics
+
 ## 🔐 Security:
+
 - All passwords in Vault
 - Network policies for service communication
 - Proper security contexts for PostgreSQL
 - Proper health checks and resource limits
+
 README
 }
+
 generate_all(){
  generate_structure
  generate_fastapi_app
@@ -3441,6 +3632,7 @@ generate_all(){
  echo "5. Manage DB: http://pgadmin.${PROJECT}.local (admin@example.com/adminpassword)"
  echo "6. View Kafka: http://kafka-ui.${PROJECT}.local"
 }
+
 case "$1" in
   generate)
     generate_all
