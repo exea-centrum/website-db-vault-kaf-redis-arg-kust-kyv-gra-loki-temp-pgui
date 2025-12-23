@@ -60,9 +60,7 @@ def get_kafka():
                 value_serializer=lambda v: json.dumps(v).encode('utf-8'),
                 retries=3
             )
-            # POPRAWKA: Zamiast list_topics(), spróbuj wysłać testową wiadomość
-            future = producer.send(KAFKA_TOPIC, value=b'test_connection')
-            future.get(timeout=10)
+            producer.list_topics()
             logger.info("Kafka connected successfully")
             return producer
         except Exception as e:
@@ -85,6 +83,7 @@ def get_db_connection():
                 time.sleep(10)
             else:
                 logger.error(f"All database connection attempts failed: {e}")
+                raise e
 
 def save_to_db(item_type, data):
     conn = get_db_connection()

@@ -4,7 +4,6 @@ namespace: davtrowebdbvault
 
 resources:
   - postgres-db.yaml
-  - postgres-clusterip.yaml
   - redis.yaml
   - vault.yaml
   - kafka-kraft.yaml
@@ -30,6 +29,8 @@ resources:
   - tempo.yaml
   - pgadmin.yaml
   - kafka-ui.yaml
+  - vault-secrets.yaml
+  - vault-job.yaml
   - network-policies.yaml
   - ingress.yaml
   - kyverno-policy.yaml

@@ -1,30 +1,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fastapi-web-app
+  name: message-processor
   namespace: davtrowebdbvault
   labels:
     app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    component: fastapi
+    component: worker
     app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
     app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    app.kubernetes.io/component: fastapi
+    app.kubernetes.io/component: worker
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-      component: fastapi
+      component: worker
   template:
     metadata:
       labels:
         app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-        component: fastapi
+        component: worker
         app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
         app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-        app.kubernetes.io/component: fastapi
+        app.kubernetes.io/component: worker
     spec:
-      serviceAccountName: fastapi-sa
       initContainers:
         - name: wait-for-postgres
           image: postgres:15-alpine
@@ -32,7 +31,7 @@ spec:
             [
               "sh",
               "-c",
-              'until pg_isready -h postgres-db-normal -p 5432 -U webuser; do echo "waiting for postgres..."; sleep 5; done; echo "postgres ready"',
+              'until pg_isready -h postgres-db -p 5432 -U webuser; do echo "waiting for postgres..."; sleep 5; done; echo "postgres ready"',
             ]
           env:
             - name: PGPASSWORD
@@ -56,10 +55,9 @@ spec:
               'for i in {1..120}; do if /opt/confluent/bin/kafka-broker-api-versions --bootstrap-server kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092 &>/dev/null; then echo "✓ kafka broker ready"; break; fi; echo "Attempt $i/120: Kafka not ready..."; sleep 5; done',
             ]
       containers:
-      - name: app
+      - name: worker
         image: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui:latest
-        ports:
-        - containerPort: 8000
+        command: ["python", "worker.py"]
         env:
         - name: REDIS_HOST
           value: "redis"
@@ -76,9 +74,7 @@ spec:
         - name: VAULT_TOKEN
           value: "root"
         - name: DATABASE_URL
-          value: "dbname=webdb user=webuser password=testpassword host=postgres-db-normal port=5432"
-        - name: PYTHONUNBUFFERED
-          value: "1"
+          value: "dbname=webdb user=webuser password=testpassword host=postgres-db port=5432"
         resources:
           requests:
             cpu: "200m"
@@ -87,47 +83,18 @@ spec:
             cpu: "500m"
             memory: "512Mi"
         livenessProbe:
-          httpGet:
-            path: /health
-            port: 8000
+          exec:
+            command:
+              - sh
+              - -c
+              - 'python -c "import redis; redis.Redis(host=\"redis\", port=6379, socket_connect_timeout=5).ping()"'
           initialDelaySeconds: 60
           periodSeconds: 30
-          failureThreshold: 3
         readinessProbe:
-          httpGet:
-            path: /health
-            port: 8000
+          exec:
+            command:
+              - sh
+              - -c
+              - 'python -c "import redis; redis.Redis(host=\"redis\", port=6379, socket_connect_timeout=5).ping()"'
           initialDelaySeconds: 30
-          periodSeconds: 20
-          failureThreshold: 3
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: fastapi-web-service
-  namespace: davtrowebdbvault
-  labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    component: fastapi
-    app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    app.kubernetes.io/component: fastapi
-spec:
-  type: ClusterIP
-  ports:
-  - port: 80
-    targetPort: 8000
-    protocol: TCP
-  selector:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    component: fastapi
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: fastapi-sa
-  namespace: davtrowebdbvault
-  labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+          periodSeconds: 10

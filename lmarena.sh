@@ -76,7 +76,9 @@ def get_kafka():
                 value_serializer=lambda v: json.dumps(v).encode('utf-8'),
                 retries=3
             )
-            producer.list_topics()
+            # POPRAWKA: Zamiast list_topics(), spróbuj wysłać testową wiadomość
+            future = producer.send(KAFKA_TOPIC, value=b'test_connection')
+            future.get(timeout=10)
             logger.info("Kafka connected successfully")
             return producer
         except Exception as e:
@@ -403,7 +405,9 @@ def get_kafka():
                 value_serializer=lambda v: json.dumps(v).encode('utf-8'),
                 retries=3
             )
-            producer.list_topics()
+            # POPRAWKA: Zamiast list_topics(), spróbuj wysłać testową wiadomość
+            future = producer.send(KAFKA_TOPIC, value=b'test_connection')
+            future.get(timeout=10)
             logger.info("Kafka connected successfully")
             return producer
         except Exception as e:
@@ -761,7 +765,7 @@ PY
                 }
             }
             if (responses.length === 0) { showSurveyMessage('Proszę odpowiedzieć na przynajmniej jedno pytanie', 'error'); return; }
-            try {
+            try:
                 for (const response of responses) {
                     await fetch('/api/survey/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(response) });
                 }
@@ -944,7 +948,7 @@ spec:
             [
               "sh",
               "-c",
-              'until pg_isready -h postgres-db -p 5432 -U webuser; do echo "waiting for postgres..."; sleep 5; done; echo "postgres ready"',
+              'until pg_isready -h postgres-db-normal -p 5432 -U webuser; do echo "waiting for postgres..."; sleep 5; done; echo "postgres ready"',
             ]
           env:
             - name: PGPASSWORD
@@ -988,7 +992,7 @@ spec:
         - name: VAULT_TOKEN
           value: "root"
         - name: DATABASE_URL
-          value: "dbname=webdb user=webuser password=testpassword host=postgres-db port=5432"
+          value: "dbname=webdb user=webuser password=testpassword host=postgres-db-normal port=5432"
         - name: PYTHONUNBUFFERED
           value: "1"
         resources:
@@ -1079,7 +1083,7 @@ spec:
             [
               "sh",
               "-c",
-              'until pg_isready -h postgres-db -p 5432 -U webuser; do echo "waiting for postgres..."; sleep 5; done; echo "postgres ready"',
+              'until pg_isready -h postgres-db-normal -p 5432 -U webuser; do echo "waiting for postgres..."; sleep 5; done; echo "postgres ready"',
             ]
           env:
             - name: PGPASSWORD
@@ -1122,7 +1126,7 @@ spec:
         - name: VAULT_TOKEN
           value: "root"
         - name: DATABASE_URL
-          value: "dbname=webdb user=webuser password=testpassword host=postgres-db port=5432"
+          value: "dbname=webdb user=webuser password=testpassword host=postgres-db-normal port=5432"
         resources:
           requests:
             cpu: "200m"
@@ -1246,6 +1250,25 @@ spec:
           storage: 10Gi
 YAML
 
+ cat > "${BASE_DIR}/postgres-clusterip.yaml" <<YAML
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-db-normal
+  namespace: ${NAMESPACE}
+  labels:
+    app: ${PROJECT}
+    component: postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: ${PROJECT}
+    component: postgres
+YAML
+
  cat > "${BASE_DIR}/pgadmin.yaml" <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -1263,7 +1286,7 @@ data:
         "1": {
           "Name": "PostgreSQL Database",
           "Group": "Servers",
-          "Host": "postgres-db",
+          "Host": "postgres-db-normal",
           "Port": 5432,
           "MaintenanceDB": "webdb",
           "Username": "webuser",
@@ -1307,7 +1330,7 @@ spec:
             - "-c"
             - |
               echo "Waiting for PostgreSQL to be ready..."
-              until nc -z postgres-db 5432; do
+              until nc -z postgres-db-normal 5432; do
                 echo "Waiting for PostgreSQL..."
                 sleep 10
               done
@@ -1500,7 +1523,7 @@ data:
       postgres-user="webuser" \
       postgres-password="testpassword" \
       postgres-db="webdb" \
-      postgres-host="postgres-db"
+      postgres-host="postgres-db-normal"
     
     vault kv put secret/redis \
       redis-password=""
@@ -1855,22 +1878,17 @@ spec:
     spec:
       initContainers:
         - name: wait-for-kafka
-          image: confluentinc/cp-kafka:7.5.0
+          image: busybox:1.35
           command:
-            - /bin/bash
-            - -c
+            - "sh"
+            - "-c"
             - |
               echo "Waiting for Kafka broker to be ready..."
-              for i in {1..120}; do
-                if /opt/confluent/bin/kafka-topics --list --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 2>/dev/null; then
-                  echo "✓ Kafka broker is ready!"
-                  exit 0
-                fi
-                echo "Attempt \$i/120: Kafka not ready..."
-                sleep 5
+              until nc -z kafka-0.kafka.${NAMESPACE}.svc.cluster.local 9092; do
+                echo "Waiting for Kafka..."
+                sleep 10
               done
-              echo "✗ Kafka broker failed to start"
-              exit 1
+              echo "Kafka is ready!"
       containers:
       - name: kafka-ui
         image: provectuslabs/kafka-ui:latest
@@ -2016,7 +2034,7 @@ spec:
             - "sh"
             - "-c"
             - |
-              until pg_isready -h postgres-db -p 5432 -U webuser; do
+              until pg_isready -h postgres-db-normal -p 5432 -U webuser; do
                 echo "Waiting for postgres..."
                 sleep 5
               done
@@ -2032,7 +2050,7 @@ spec:
           name: http
         env:
         - name: DATA_SOURCE_NAME
-          value: "postgresql://webuser:testpassword@postgres-db:5432/webdb?sslmode=disable"
+          value: "postgresql://webuser:testpassword@postgres-db-normal:5432/webdb?sslmode=disable"
         resources:
           requests:
             cpu: "100m"
@@ -2104,22 +2122,17 @@ spec:
     spec:
       initContainers:
         - name: wait-for-kafka
-          image: confluentinc/cp-kafka:7.5.0
+          image: busybox:1.35
           command:
-            - /bin/bash
-            - -c
+            - "sh"
+            - "-c"
             - |
               echo "Waiting for Kafka broker to be ready..."
-              for i in {1..120}; do
-                if /opt/confluent/bin/kafka-topics --list --bootstrap-server kafka-0.kafka.${NAMESPACE}.svc.cluster.local:9092 2>/dev/null; then
-                  echo "✓ Kafka broker is ready!"
-                  exit 0
-                fi
-                echo "Attempt \$i/120: Kafka not ready..."
+              until nc -z kafka-0.kafka.${NAMESPACE}.svc.cluster.local 9092; do
+                echo "Waiting for Kafka..."
                 sleep 5
               done
-              echo "✗ Kafka broker failed to start"
-              exit 1
+              echo "Kafka is ready!"
       containers:
       - name: kafka-exporter
         image: danielqsj/kafka-exporter:v1.7.0
@@ -2488,7 +2501,7 @@ data:
       editable: true
     - name: PostgreSQL
       type: postgres
-      url: postgres-db:5432
+      url: postgres-db-normal:5432
       database: webdb
       user: webuser
       secureJsonData:
@@ -3223,16 +3236,16 @@ spec:
       app: ${PROJECT}
       component: fastapi
   policyTypes:
-  - Egress
+    - Egress
   egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: ${PROJECT}
-          component: postgres
-    ports:
-    - protocol: TCP
-      port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -3246,16 +3259,16 @@ spec:
       app: ${PROJECT}
       component: fastapi
   policyTypes:
-  - Egress
+    - Egress
   egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: ${PROJECT}
-          component: redis
-    ports:
-    - protocol: TCP
-      port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: redis
+      ports:
+        - protocol: TCP
+          port: 6379
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -3269,101 +3282,16 @@ spec:
       app: ${PROJECT}
       component: worker
   policyTypes:
-  - Egress
+    - Egress
   egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: ${PROJECT}
-          component: kafka
-    ports:
-    - protocol: TCP
-      port: 9092
-
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-monitoring-communication
-  namespace: ${NAMESPACE}
-spec:
-  podSelector:
-    matchLabels:
-      app: ${PROJECT}
-      component: grafana
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: ${PROJECT}
-          component: prometheus
-    ports:
-    - protocol: TCP
-      port: 9090
-  - to:
-    - podSelector:
-        matchLabels:
-          app: ${PROJECT}
-          component: loki
-    ports:
-    - protocol: TCP
-      port: 3100
-  - to:
-    - podSelector:
-        matchLabels:
-          app: ${PROJECT}
-          component: tempo
-    ports:
-    - protocol: TCP
-      port: 3200
-
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-prometheus-to-postgres-exporter
-  namespace: ${NAMESPACE}
-spec:
-  podSelector:
-    matchLabels:
-      app: ${PROJECT}
-      component: prometheus
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: ${PROJECT}
-          component: postgres-exporter
-    ports:
-    - protocol: TCP
-      port: 9187
-
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-pgadmin-to-postgres
-  namespace: ${NAMESPACE}
-spec:
-  podSelector:
-    matchLabels:
-      app: ${PROJECT}
-      component: pgadmin
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: ${PROJECT}
-          component: postgres
-    ports:
-    - protocol: TCP
-      port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: kafka
+      ports:
+        - protocol: TCP
+          port: 9092
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -3377,16 +3305,244 @@ spec:
       app: ${PROJECT}
       component: kafka-ui
   policyTypes:
-  - Egress
+    - Egress
   egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: ${PROJECT}
-          component: kafka
-    ports:
-    - protocol: TCP
-      port: 9092
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: kafka
+      ports:
+        - protocol: TCP
+          port: 9092
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-init-to-all
+  namespace: ${NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app: ${PROJECT}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: kafka
+      ports:
+        - protocol: TCP
+          port: 9092
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-to-postgres-exporter
+  namespace: ${NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app: ${PROJECT}
+      component: prometheus
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: postgres-exporter
+      ports:
+        - protocol: TCP
+          port: 9187
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pgadmin-to-postgres
+  namespace: ${NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app: ${PROJECT}
+      component: pgadmin
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-communication
+  namespace: ${NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app: ${PROJECT}
+      component: grafana
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: loki
+      ports:
+        - protocol: TCP
+          port: 3100
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+              component: tempo
+      ports:
+        - protocol: TCP
+          port: 3200
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: ${NAMESPACE}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-app-pods-to-deps
+  namespace: ${NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app: ${PROJECT}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-ingress
+  namespace: ${NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app: ${PROJECT}
+      component: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-ingress
+  namespace: ${NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app: ${PROJECT}
+      component: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+      ports:
+        - protocol: TCP
+          port: 6379
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kafka-ingress
+  namespace: ${NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app: ${PROJECT}
+      component: kafka
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: ${PROJECT}
+      ports:
+        - protocol: TCP
+          port: 9092
 YAML
 
  cat > "${BASE_DIR}/ingress.yaml" <<YAML
@@ -3486,6 +3642,7 @@ namespace: ${NAMESPACE}
 
 resources:
   - postgres-db.yaml
+  - postgres-clusterip.yaml
   - redis.yaml
   - vault.yaml
   - kafka-kraft.yaml

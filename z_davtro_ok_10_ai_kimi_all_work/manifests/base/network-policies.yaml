@@ -1,3 +1,4 @@
+# ✅ Pozwala FASTAPI (i initContainerm) łączyć się z PostgreSQL
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -21,6 +22,7 @@ spec:
           port: 5432
 
 ---
+# ✅ Pozwala FASTAPI (i initContainerm) łączyć się z Redis
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -44,6 +46,7 @@ spec:
           port: 6379
 
 ---
+# ✅ Pozwala WORKER (i initContainerm) łączyć się z Kafka
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -67,6 +70,7 @@ spec:
           port: 9092
 
 ---
+# ✅ Pozwala KAFKA-UI łączyć się z Kafka
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -90,6 +94,7 @@ spec:
           port: 9092
 
 ---
+# ✅ NOWA: Pozwala WSZYSTKIM podom z etykietą app=... łączyć się z Kafka, Postgres, Redis
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -128,6 +133,7 @@ spec:
           port: 6379
 
 ---
+# ✅ Prometheus -> Postgres Exporter
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -151,6 +157,7 @@ spec:
           port: 9187
 
 ---
+# ✅ PgAdmin -> Postgres
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -174,6 +181,7 @@ spec:
           port: 5432
 
 ---
+# ✅ Grafana -> Prometheus, Loki, Tempo
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -211,8 +219,8 @@ spec:
       ports:
         - protocol: TCP
           port: 3200
-
 ---
+# ✅ FIX: Pozwala WSZYSTKIM podom w namespace davtrowebdbvault na DNS (CoreDNS)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -232,8 +240,8 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-
 ---
+# ✅ Pozwala WSZYSTKIM podom z etykietą app=... łączyć się ze sobą (init-containerki!)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -250,8 +258,8 @@ spec:
         - podSelector:
             matchLabels:
               app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-
 ---
+# ✅ INGRESS: pozwala WSZYSTKIM podom z etykietą app=... łączyć się z POSTGRES-em
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -274,6 +282,7 @@ spec:
           port: 5432
 
 ---
+# ✅ INGRESS: pozwala WSZYSTKIM podom z etykietą app=... łączyć się z REDIS-em
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -296,6 +305,7 @@ spec:
           port: 6379
 
 ---
+# ✅ INGRESS: pozwala WSZYSTKIM podom z etykietą app=... łączyć się z KAFKA
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -316,3 +326,21 @@ spec:
       ports:
         - protocol: TCP
           port: 9092
+---
+# ✅ NORMALNY ClusterIP service dla postgres (headless nie działa z init-containerami)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-db-normal
+  namespace: davtrowebdbvault
+  labels:
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    component: postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    component: postgres

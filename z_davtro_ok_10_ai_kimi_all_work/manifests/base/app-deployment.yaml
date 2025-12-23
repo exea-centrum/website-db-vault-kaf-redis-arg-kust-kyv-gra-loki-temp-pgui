@@ -32,7 +32,7 @@ spec:
             [
               "sh",
               "-c",
-              'until pg_isready -h postgres-db-normal -p 5432 -U webuser; do echo "waiting for postgres..."; sleep 5; done; echo "postgres ready"',
+              'until pg_isready -h postgres-db -p 5432 -U webuser; do echo "waiting for postgres..."; sleep 5; done; echo "postgres ready"',
             ]
           env:
             - name: PGPASSWORD
@@ -76,7 +76,7 @@ spec:
         - name: VAULT_TOKEN
           value: "root"
         - name: DATABASE_URL
-          value: "dbname=webdb user=webuser password=testpassword host=postgres-db-normal port=5432"
+          value: "dbname=webdb user=webuser password=testpassword host=postgres-db port=5432"
         - name: PYTHONUNBUFFERED
           value: "1"
         resources:

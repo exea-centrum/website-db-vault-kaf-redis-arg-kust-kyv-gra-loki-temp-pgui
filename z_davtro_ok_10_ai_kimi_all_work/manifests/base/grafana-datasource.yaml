@@ -29,7 +29,7 @@ data:
       editable: true
     - name: PostgreSQL
       type: postgres
-      url: postgres-db-normal:5432
+      url: postgres-db:5432
       database: webdb
       user: webuser
       secureJsonData:

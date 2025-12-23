@@ -26,17 +26,22 @@ spec:
     spec:
       initContainers:
         - name: wait-for-kafka
-          image: busybox:1.35
+          image: confluentinc/cp-kafka:7.5.0
           command:
-            - "sh"
-            - "-c"
+            - /bin/bash
+            - -c
             - |
               echo "Waiting for Kafka broker to be ready..."
-              until nc -z kafka-0.kafka.davtrowebdbvault.svc.cluster.local 9092; do
-                echo "Waiting for Kafka..."
-                sleep 10
+              for i in {1..120}; do
+                if /opt/confluent/bin/kafka-topics --list --bootstrap-server kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092 2>/dev/null; then
+                  echo "✓ Kafka broker is ready!"
+                  exit 0
+                fi
+                echo "Attempt $i/120: Kafka not ready..."
+                sleep 5
               done
-              echo "Kafka is ready!"
+              echo "✗ Kafka broker failed to start"
+              exit 1
       containers:
       - name: kafka-ui
         image: provectuslabs/kafka-ui:latest

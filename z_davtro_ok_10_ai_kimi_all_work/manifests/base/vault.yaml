@@ -6,11 +6,15 @@ metadata:
   labels:
     app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
     component: vault
+    app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app.kubernetes.io/component: vault
 spec:
   clusterIP: None
   ports:
-  - port: 8200
-    name: http
+  - name: http
+    port: 8200
+    targetPort: 8200
   selector:
     app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
     component: vault
@@ -23,6 +27,9 @@ metadata:
   labels:
     app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
     component: vault
+    app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app.kubernetes.io/component: vault
 spec:
   serviceName: vault
   replicas: 1
@@ -35,6 +42,9 @@ spec:
       labels:
         app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
         component: vault
+        app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        app.kubernetes.io/component: vault
     spec:
       serviceAccountName: vault-sa
       containers:
@@ -78,77 +88,5 @@ metadata:
   namespace: davtrowebdbvault
   labels:
     app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: vault-init
-  namespace: davtrowebdbvault
-  labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-data:
-  init-vault.sh: |
-    #!/bin/bash
-    sleep 10
-    export VAULT_ADDR="http://vault:8200"
-    export VAULT_TOKEN="root"
-    
-    vault secrets enable -path=secret kv-v2
-    
-    vault kv put secret/database/postgres \
-      postgres-user="webuser" \
-      postgres-password="testpassword" \
-      postgres-db="webdb" \
-      postgres-host="postgres-db-normal"
-    
-    vault kv put secret/redis \
-      redis-password=""
-    
-    vault kv put secret/kafka \
-      kafka-brokers="kafka:9092"
-    
-    vault kv put secret/grafana \
-      admin-user="admin" \
-      admin-password="admin"
-    
-    vault kv put secret/pgadmin \
-      pgadmin-email="admin@example.com" \
-      pgadmin-password="adminpassword"
-    
-    echo "Vault initialization completed"
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: vault-init
-  namespace: davtrowebdbvault
-  labels:
-    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    component: vault-init
-spec:
-  template:
-    metadata:
-      labels:
-        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-        component: vault-init
-    spec:
-      serviceAccountName: vault-sa
-      containers:
-      - name: vault-init
-        image: hashicorp/vault:1.15.0
-        command: ["/bin/sh", "/scripts/init-vault.sh"]
-        volumeMounts:
-        - name: vault-scripts
-          mountPath: /scripts
-        env:
-        - name: VAULT_ADDR
-          value: "http://vault:8200"
-        - name: VAULT_TOKEN  
-          value: "root"
-      volumes:
-      - name: vault-scripts
-        configMap:
-          name: vault-init
-          defaultMode: 0755
-      restartPolicy: OnFailure
-  backoffLimit: 3
+    app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui

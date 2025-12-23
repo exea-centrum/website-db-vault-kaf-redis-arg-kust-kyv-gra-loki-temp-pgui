@@ -250,7 +250,7 @@
                 }
             }
             if (responses.length === 0) { showSurveyMessage('Proszę odpowiedzieć na przynajmniej jedno pytanie', 'error'); return; }
-            try:
+            try {
                 for (const response of responses) {
                     await fetch('/api/survey/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(response) });
                 }
