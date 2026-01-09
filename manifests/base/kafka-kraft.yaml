@@ -51,6 +51,8 @@ spec:
       - name: kafka
         image: confluentinc/cp-kafka:7.5.0
         env:
+        - name: CLUSTER_ID
+          value: "1TDYjwQaTrSOTzez8sKYEg"
         - name: KAFKA_BROKER_ID
           value: "0"
         - name: KAFKA_PROCESS_ROLES

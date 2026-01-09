@@ -44,12 +44,10 @@ def get_kafka():
             producer = KafkaProducer(
                 bootstrap_servers=KAFKA_BOOTSTRAP.split(','),
                 value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                retries=3
+                retries=3,
+                request_timeout_ms=10000
             )
-            # POPRAWKA: Zamiast list_topics(), spróbuj wysłać testową wiadomość
-            future = producer.send(KAFKA_TOPIC, value=b'test_connection')
-            future.get(timeout=10)
-            logger.info("Kafka connected successfully")
+            logger.info("Kafka producer created successfully")
             return producer
         except Exception as e:
             logger.warning(f"Kafka connection attempt {attempt + 1} failed: {e}")

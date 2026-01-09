@@ -74,12 +74,10 @@ def get_kafka():
             producer = KafkaProducer(
                 bootstrap_servers=KAFKA_BOOTSTRAP.split(','),
                 value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                retries=3
+                retries=3,
+                request_timeout_ms=10000
             )
-            # POPRAWKA: Zamiast list_topics(), spróbuj wysłać testową wiadomość
-            future = producer.send(KAFKA_TOPIC, value=b'test_connection')
-            future.get(timeout=10)
-            logger.info("Kafka connected successfully")
+            logger.info("Kafka producer created successfully")
             return producer
         except Exception as e:
             logger.warning(f"Kafka connection attempt {attempt + 1} failed: {e}")
@@ -403,12 +401,10 @@ def get_kafka():
             producer = KafkaProducer(
                 bootstrap_servers=KAFKA_BOOTSTRAP.split(','),
                 value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                retries=3
+                retries=3,
+                request_timeout_ms=10000
             )
-            # POPRAWKA: Zamiast list_topics(), spróbuj wysłać testową wiadomość
-            future = producer.send(KAFKA_TOPIC, value=b'test_connection')
-            future.get(timeout=10)
-            logger.info("Kafka connected successfully")
+            logger.info("Kafka producer created successfully")
             return producer
         except Exception as e:
             logger.warning(f"Kafka connection attempt {attempt + 1} failed: {e}")
@@ -432,10 +428,10 @@ def get_db_connection():
                 logger.error(f"All database connection attempts failed: {e}")
 
 def save_to_db(item_type, data):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
     try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
         if item_type == "survey":
             cur.execute(
                 "INSERT INTO survey_responses (question, answer) VALUES (%s, %s)",
@@ -449,12 +445,10 @@ def save_to_db(item_type, data):
         
         conn.commit()
         logger.info(f"Saved {item_type} to database")
-    except Exception as e:
-        logger.error(f"Error saving to database: {e}")
-        conn.rollback()
-    finally:
         cur.close()
         conn.close()
+    except Exception as e:
+        logger.error(f"Error saving to database: {e}")
 
 def process_item(item, producer):
     try:
@@ -474,20 +468,12 @@ def process_item(item, producer):
 
 def main():
     r = get_redis()
-    producer = None
-    kafka_retry_time = 60
+    producer = get_kafka()
     
     logger.info("Worker started. Listening on Redis list '%s'", REDIS_LIST)
     
     while True:
         try:
-            if not producer:
-                producer = get_kafka()
-                if not producer:
-                    logger.info(f"Retrying Kafka connection in {kafka_retry_time} seconds")
-                    time.sleep(kafka_retry_time)
-                    continue
-            
             res = r.blpop(REDIS_LIST, timeout=10)
             if res:
                 _, data = res
@@ -500,12 +486,6 @@ def main():
                 
         except Exception as e:
             logger.exception("Worker loop exception, reconnecting...")
-            if producer:
-                try:
-                    producer.close()
-                except:
-                    pass
-                producer = None
             time.sleep(5)
 
 if __name__ == "__main__":
@@ -1707,6 +1687,8 @@ spec:
       - name: kafka
         image: confluentinc/cp-kafka:7.5.0
         env:
+        - name: CLUSTER_ID
+          value: "1TDYjwQaTrSOTzez8sKYEg"
         - name: KAFKA_BROKER_ID
           value: "0"
         - name: KAFKA_PROCESS_ROLES
