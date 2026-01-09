@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-kafka-topics
+  namespace: davtrowebdbvault
+  labels:
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    component: kafka-topic-job
+    app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app.kubernetes.io/component: kafka-topic-job
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        component: kafka-topic-job
+        app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        app.kubernetes.io/component: kafka-topic-job
+    spec:
+      serviceAccountName: kafka-job-sa
+      initContainers:
+        - name: wait-for-kafka-broker
+          image: confluentinc/cp-kafka:7.5.0
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "Waiting for Kafka broker to be ready..."
+              for i in {1..120}; do
+                if /opt/confluent/bin/kafka-broker-api-versions --bootstrap-server kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092 &>/dev/null; then
+                  echo "✓ Kafka broker is ready!"
+                  exit 0
+                fi
+                echo "Attempt $i/120: Kafka not ready..."
+                sleep 5
+              done
+              echo "✗ Kafka broker failed to start"
+              exit 1
+      containers:
+        - name: create-topics
+          image: confluentinc/cp-kafka:7.5.0
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              echo "Creating Kafka topics..."
+              
+              /opt/confluent/bin/kafka-topics --create                 --bootstrap-server kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092                 --topic survey-topic                 --partitions 3                 --replication-factor 1                 --config retention.ms=604800000                 --config min.insync.replicas=1                 --if-not-exists
+              
+              echo "Verifying topics..."
+              /opt/confluent/bin/kafka-topics --list                 --bootstrap-server kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092
+              
+              echo "✓ Kafka topics created successfully"
+      restartPolicy: OnFailure

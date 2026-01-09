@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: message-processor
+  namespace: davtrowebdbvault
+  labels:
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    component: worker
+    app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        component: worker
+        app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        app.kubernetes.io/component: worker
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:15-alpine
+          command:
+            [
+              "sh",
+              "-c",
+              'until pg_isready -h postgres-db-normal -p 5432 -U webuser; do echo "waiting for postgres..."; sleep 5; done; echo "postgres ready"',
+            ]
+          env:
+            - name: PGPASSWORD
+              value: "testpassword"
+            - name: PGUSER
+              value: "webuser"
+        - name: wait-for-redis
+          image: busybox:1.36
+          command:
+            [
+              "sh",
+              "-c",
+              'until nc -z redis 6379; do echo "waiting for redis..."; sleep 5; done; echo "redis ready"',
+            ]
+        - name: wait-for-kafka-broker
+          image: confluentinc/cp-kafka:7.5.0
+          command:
+            [
+              "/bin/bash",
+              "-c",
+              'for i in {1..120}; do if /opt/confluent/bin/kafka-broker-api-versions --bootstrap-server kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092 &>/dev/null; then echo "✓ kafka broker ready"; break; fi; echo "Attempt $i/120: Kafka not ready..."; sleep 5; done',
+            ]
+      containers:
+      - name: worker
+        image: ghcr.io/exea-centrum/website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui:latest
+        command: ["python", "worker.py"]
+        env:
+        - name: REDIS_HOST
+          value: "redis"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: REDIS_LIST
+          value: "outgoing_messages"
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka-0.kafka.davtrowebdbvault.svc.cluster.local:9092"
+        - name: KAFKA_TOPIC
+          value: "survey-topic"
+        - name: VAULT_ADDR
+          value: "http://vault:8200"
+        - name: VAULT_TOKEN
+          value: "root"
+        - name: DATABASE_URL
+          value: "dbname=webdb user=webuser password=testpassword host=postgres-db-normal port=5432"
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          exec:
+            command:
+              - sh
+              - -c
+              - 'python -c "import redis; redis.Redis(host=\"redis\", port=6379, socket_connect_timeout=5).ping()"'
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+              - sh
+              - -c
+              - 'python -c "import redis; redis.Redis(host=\"redis\", port=6379, socket_connect_timeout=5).ping()"'
+          initialDelaySeconds: 30
+          periodSeconds: 10

@@ -1,88 +1,83 @@
 apiVersion: apps/v1
-kind: DaemonSet
+kind: StatefulSet
 metadata:
-  name: node-exporter
+  name: tempo
   namespace: davtrowebdbvault
   labels:
     app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    component: node-exporter
+    component: tempo
     app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
     app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    app.kubernetes.io/component: node-exporter
+    app.kubernetes.io/component: tempo
 spec:
+  serviceName: tempo
+  replicas: 1
   selector:
     matchLabels:
       app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-      component: node-exporter
+      component: tempo
   template:
     metadata:
       labels:
         app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-        component: node-exporter
+        component: tempo
         app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
         app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-        app.kubernetes.io/component: node-exporter
+        app.kubernetes.io/component: tempo
     spec:
       containers:
-      - name: node-exporter
-        image: prom/node-exporter:latest
+      - name: tempo
+        image: grafana/tempo:2.4.2
         ports:
-        - containerPort: 9100
+        - containerPort: 3200
+        - containerPort: 4317
+        - containerPort: 4318
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tempo
+        - name: storage
+          mountPath: /tmp/tempo
         resources:
           requests:
             cpu: "100m"
-            memory: "128Mi"
-          limits:
-            cpu: "200m"
             memory: "256Mi"
+          limits:
+            cpu: "250m"
+            memory: "512Mi"
         args:
-        - --path.procfs=/host/proc
-        - --path.sysfs=/host/sys
-        - --path.rootfs=/host/root
-        - --collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)(391741|/)
-        volumeMounts:
-        - name: proc
-          mountPath: /host/proc
-          readOnly: true
-        - name: sys
-          mountPath: /host/sys
-          readOnly: true
-        - name: root
-          mountPath: /host/root
-          readOnly: true
+        - -config.file=/etc/tempo/tempo.yaml
       volumes:
-      - name: proc
-        hostPath:
-          path: /proc
-      - name: sys
-        hostPath:
-          path: /sys
-      - name: root
-        hostPath:
-          path: /
-      hostNetwork: true
-      hostPID: true
-      tolerations:
-      - effect: NoSchedule
-        operator: Exists
+      - name: config
+        configMap:
+          name: tempo-config
+      - name: storage
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: node-exporter
+  name: tempo
   namespace: davtrowebdbvault
   labels:
     app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    component: node-exporter
+    component: tempo
     app.kubernetes.io/name: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
     app.kubernetes.io/instance: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    app.kubernetes.io/component: node-exporter
+    app.kubernetes.io/component: tempo
 spec:
   ports:
-  - port: 9100
-    targetPort: 9100
+  - port: 3200
+    targetPort: 3200
+    name: http
+    protocol: TCP
+  - port: 4317
+    targetPort: 4317
+    name: otlp-grpc
+    protocol: TCP
+  - port: 4318
+    targetPort: 4318
+    name: otlp-http
     protocol: TCP
   selector:
     app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
-    component: node-exporter
-  clusterIP: None
+    component: tempo

@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: davtrowebdbvault
+  labels:
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    component: vault
+spec:
+  clusterIP: None
+  ports:
+  - port: 8200
+    name: http
+  selector:
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    component: vault
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vault
+  namespace: davtrowebdbvault
+  labels:
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    component: vault
+spec:
+  serviceName: vault
+  replicas: 1
+  selector:
+    matchLabels:
+      app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+      component: vault
+  template:
+    metadata:
+      labels:
+        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        component: vault
+    spec:
+      serviceAccountName: vault-sa
+      containers:
+      - name: vault
+        image: hashicorp/vault:1.15.0
+        command: ["vault", "server", "-dev", "-dev-listen-address=0.0.0.0:8200", "-dev-root-token-id=root"]
+        ports:
+        - containerPort: 8200
+        env:
+        - name: VAULT_ADDR
+          value: "http://127.0.0.1:8200"
+        - name: VAULT_DEV_ROOT_TOKEN_ID
+          value: "root"
+        securityContext:
+          capabilities:
+            add: ["IPC_LOCK"]
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "250m"
+            memory: "256Mi"
+        readinessProbe:
+          httpGet:
+            path: /v1/sys/health
+            port: 8200
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /v1/sys/health
+            port: 8200
+          initialDelaySeconds: 15
+          periodSeconds: 15
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-sa
+  namespace: davtrowebdbvault
+  labels:
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-init
+  namespace: davtrowebdbvault
+  labels:
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+data:
+  init-vault.sh: |
+    #!/bin/bash
+    sleep 10
+    export VAULT_ADDR="http://vault:8200"
+    export VAULT_TOKEN="root"
+    
+    vault secrets enable -path=secret kv-v2
+    
+    vault kv put secret/database/postgres \
+      postgres-user="webuser" \
+      postgres-password="testpassword" \
+      postgres-db="webdb" \
+      postgres-host="postgres-db-normal"
+    
+    vault kv put secret/redis \
+      redis-password=""
+    
+    vault kv put secret/kafka \
+      kafka-brokers="kafka:9092"
+    
+    vault kv put secret/grafana \
+      admin-user="admin" \
+      admin-password="admin"
+    
+    vault kv put secret/pgadmin \
+      pgadmin-email="admin@example.com" \
+      pgadmin-password="adminpassword"
+    
+    echo "Vault initialization completed"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-init
+  namespace: davtrowebdbvault
+  labels:
+    app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+    component: vault-init
+spec:
+  template:
+    metadata:
+      labels:
+        app: website-db-vault-kaf-redis-arg-kust-kyv-gra-loki-temp-pgui
+        component: vault-init
+    spec:
+      serviceAccountName: vault-sa
+      containers:
+      - name: vault-init
+        image: hashicorp/vault:1.15.0
+        command: ["/bin/sh", "/scripts/init-vault.sh"]
+        volumeMounts:
+        - name: vault-scripts
+          mountPath: /scripts
+        env:
+        - name: VAULT_ADDR
+          value: "http://vault:8200"
+        - name: VAULT_TOKEN  
+          value: "root"
+      volumes:
+      - name: vault-scripts
+        configMap:
+          name: vault-init
+          defaultMode: 0755
+      restartPolicy: OnFailure
+  backoffLimit: 3
